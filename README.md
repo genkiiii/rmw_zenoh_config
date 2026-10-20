@@ -24,7 +24,7 @@ sudoで実行しないこと。
 ```bash
 # 車載PC
 make install ROLE=vehicle
-# 制御用PC（そのPCのユーザー名に変更）
+# 制御用PC
 make install ROLE=control
 # 中央VMのみ
 make install ROLE=central
