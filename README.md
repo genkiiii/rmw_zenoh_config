@@ -1,7 +1,7 @@
 # rmw_zenoh_config
 
 Ubuntu 22.04 / ROS 2 Humble向けのrmw_zenoh router導入・更新用リポジトリ。
-中央VMは192.168.1.70、各PCのROS_DOMAIN_IDは35。各PCにrouterを1つ置き、中央に明示接続する。
+中央PCと移動体用PCのROS_DOMAIN_IDは35。各PCにrouterを1つ置き、中央PCに明示接続する構成。
 
 ## 前提
 
