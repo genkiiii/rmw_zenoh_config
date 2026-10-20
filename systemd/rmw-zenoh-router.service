@@ -1,0 +1,18 @@
+[Unit]
+Description=ROS 2 rmw_zenoh Router
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@USER@
+Group=@GROUP@
+ExecStart=/usr/local/bin/start-rmw-zenoh-router
+Restart=always
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

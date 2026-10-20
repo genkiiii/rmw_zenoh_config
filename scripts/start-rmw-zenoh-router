@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -eo pipefail
+source /opt/ros/humble/setup.bash
+source /etc/zenoh/rmw_zenoh_config/deployment.env
+unset ZENOH_CONFIG_OVERRIDE ZENOH_SESSION_CONFIG_URI
+export ZENOH_ROUTER_CONFIG_URI=/etc/zenoh/rmw_zenoh_config/router.json5
+if [[ "$ROLE" == central ]]; then
+  endpoints='[]'
+  listener='tcp/0.0.0.0:7447'
+else
+  endpoints="[\"tcp/${SERVER}:7447\"]"
+  listener='tcp/127.0.0.1:7447'
+fi
+export ZENOH_CONFIG_OVERRIDE="mode=\"router\";listen/endpoints=[\"${listener}\"];connect/endpoints=${endpoints};scouting/multicast/enabled=false;scouting/gossip/enabled=true;scouting/gossip/multihop=false"
+export RUST_LOG=zenoh=info
+exec ros2 run rmw_zenoh_cpp rmw_zenohd
