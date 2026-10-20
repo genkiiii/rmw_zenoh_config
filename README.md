@@ -19,14 +19,15 @@ sudo apt install make git ros-humble-rmw-zenoh-cpp ros-humble-demo-nodes-cpp net
 ## インストール
 
 リポジトリを取得したディレクトリで、実際の役割を1つ選んで実行する。
+sudoで実行しないこと。
 
 ```bash
 # 車載PC
-make install ROLE=vehicle RUN_USER=bull
+make install ROLE=vehicle
 # 制御用PC（そのPCのユーザー名に変更）
-make install ROLE=control RUN_USER=bull
+make install ROLE=control
 # 中央VMのみ
-make install ROLE=central RUN_USER=bull
+make install ROLE=central
 ```
 
 必要なら `SERVER=192.168.1.70 DOMAIN_ID=35` を追加指定する。
