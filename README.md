@@ -126,12 +126,11 @@ ros2 daemon stop
 # ここでROSノードを再起動。systemd起動のROSノードも再起動する。
 ```
 
-古いバージョンから移行する場合は、config/deployment.envへ従来のSERVER・DOMAIN_IDの値を写す（DOMAIN_IDはROS_DOMAIN_IDへ名称変更）。以前ローカルenvにROLEを記載していた場合は削除する。make updateでは配置済みのROLEとRUN_USERを維持する。
 ROLEを変える場合は設定をバックアップし、make purge後に新しいROLEでinstallする。
 
-### 既存PCで最初の1回・プロファイルの選び直し
+### プロファイルの選び直し
 
-旧バージョンは選択名を記録していないため、既存PCは最初の1回だけ指定する。
+通常はinstall時に記録したプロファイルを使うため、make updateにDEVICEを指定する必要はない。選択を変更する場合のみ指定する。
 
 ```bash
 # 車載PC
@@ -140,8 +139,8 @@ make update DEVICE="<対象機械>"
 make update DEVICE="control"
 ```
 
-以後はmake updateだけで同じプロファイルを再適用する。選び直す場合も上記のDEVICE指定を使う。
-記録がないのにDEVICEを省略した場合や、不明なプロファイル・不正なJSONを指定した場合は、既存設定を上書きせずエラーにする。
+変更後はmake updateだけで同じプロファイルを再適用する。
+不明なプロファイル・不正なJSONを指定した場合は、既存設定を上書きせずエラーにする。
 中央PCはプロファイルを使わないため、make updateだけでよい。
 
 
