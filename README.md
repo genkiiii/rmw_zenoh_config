@@ -16,6 +16,36 @@ sudo apt update
 sudo apt install make git python3 iproute2 ros-humble-rmw-zenoh-cpp ros-humble-demo-nodes-cpp netcat-openbsd
 ```
 
+## 環境設定（初回・変更時）
+
+初回はリポジトリ内でひな形をコピーする。導入済みPCも、この方式へ移行する初回だけ作成する。
+既に存在する場合はコピーで上書きせず、そのファイルを編集する。
+
+```bash
+cp config/deployment.env.example config/deployment.env
+```
+
+`config/deployment.env` を各PCの環境に合わせて編集する。
+
+```bash
+ROLE=vehicle
+SERVER=192.168.1.70
+ROS_DOMAIN_ID=35
+```
+
+| 項目 | 内容 |
+|---|---|
+| ROLE | 中央PCはcentral、車載PCはvehicle、制御PCはcontrol |
+| SERVER | 中央PCのIPv4アドレス。中央PC自身にも記載する |
+| ROS_DOMAIN_ID | ROSノードの通信グループ。同じグループのPCで統一する |
+
+3項目すべて必須。RUN_USERや旧名DOMAIN_IDはこのファイルに記載しない。
+ROS_DOMAIN_IDは0〜232の整数。シェルコマンド・変数展開は使わず、値を直接記載する。
+`config/deployment.env` はPC固有のためGit管理対象外。ひな形だけGit管理する。
+
+**このローカルファイルが編集元。`/etc/zenoh/rmw_zenoh_config/deployment.env` は自動配置先なので、直接編集しない。**
+install/updateで値を検証して配置し、不正・不足の場合は配置先を上書きせずエラーにする。
+
 ## インストール
 
 通常ユーザーで実行する。`sudo make`は使用しない。必要な処理だけ内部でsudoを使う。
@@ -32,33 +62,28 @@ sudo apt install make git python3 iproute2 ros-humble-rmw-zenoh-cpp ros-humble-d
 [profiles/template.json](profiles/template.json)は、新しい機器のプロファイルを作るためのひな形。対象機械の一覧には含めない。
 
 ```bash
-# 中央PC：機器指定なし
-make install ROLE=central
+# 中央PC：envでROLE=centralにして、機器指定なし
+make install
 
-# 車載PC：搭載する建機を指定
-make install ROLE=vehicle DEVICE="<対象機械>"
+# 車載PC：envでROLE=vehicleにして、搭載する建機を指定
+make install DEVICE="<対象機械>"
 
-# 制御PC：対象の建機を指定
-make install ROLE=control DEVICE="<対象機械>"
+# 制御PC：envでROLE=controlにして、対象の建機を指定
+make install DEVICE="<対象機械>"
 
-# 複数の建機を扱う制御PC
-make install ROLE=control DEVICES="<対象機械1> <対象機械2>"
+# 複数の建機を扱う制御PC（ROLE=control）
+make install DEVICES="<対象機械1> <対象機械2>"
 ```
 
 vehicle/controlはDEVICEまたはDEVICESが必須。両方の同時指定はエラー。
 centralではDEVICE/DEVICESを指定しない。
-
-既定値はSERVER=192.168.1.70、DOMAIN_ID=35。
 RUN_USERは省略可能。省略時はコマンドを実行したユーザーでrouterを動かす。
-
-```bash
-make install ROLE=vehicle DEVICE="<対象機械>" SERVER=192.168.1.70 DOMAIN_ID=35
-```
+詳細は下部の補足を参照。
 
 中央は0.0.0.0:7447で待受、ほかは127.0.0.1:7447で待受し中央へ接続する。
 multicast無効、gossip有効、multihop無効。
 初回導入時にインストール済みROSパッケージの標準router設定をコピーする。
-役割・接続先などは `/etc/zenoh/rmw_zenoh_config/deployment.env` に保存する。
+役割・接続先・ROS_DOMAIN_IDはローカルenvから配置する。RUN_USERはinstall時に決定し、配置先に記録する。
 
 ## ROSノードの環境
 
@@ -76,34 +101,58 @@ printenv RMW_IMPLEMENTATION ROS_DOMAIN_ID
 ros2 daemon stop
 ```
 
-期待値：rmw_zenoh_cpp / 35。既存ROSノードは再起動する。
+期待値：rmw_zenoh_cpp / envで指定したROS_DOMAIN_ID（ひな形では35）。既存ROSノードは再起動する。
 ローカルrouter未起動時はROSノードが起動待ちになる。
 ROSノードのsystemd自動起動は本リポジトリの対象外。
 そのサービスではROSノード起動前に上記ros-env.shとワークスペースを明示的にsourceする。
 必要に応じてUnitに `Requires=rmw-zenoh-router.service` と `After=rmw-zenoh-router.service` を指定する。
 
-## 更新・削除
+## 環境・コードの更新
+
+ローカルの `config/deployment.env` を編集した後、または作業フォルダのスクリプトを変更した後に実行する。
 
 ```bash
-git pull --ff-only
-make check
 make update
-make status
-make logs
 ```
 
-`update` はスクリプト・サービスを更新し再起動する。deployment.envとrouter.json5（ACLを含む）は保持する。ROSパッケージ更新は行わない。
-設定を変更した場合も `make update` でrouterへ反映できる。Domain ID変更後はROSノードも再起動する。
+- envのROLE・SERVER・ROS_DOMAIN_IDと、スクリプト・サービスを反映しrouterを再起動する。
+- RUN_USERはinstall時の値を維持する。別ユーザーがupdateしても実行ユーザーは変わらない。
+- router.json5と適用済みプロファイルは保持する。profiles/*.jsonの編集反映は別のmake apply-profileで行う。
+- ROS_DOMAIN_IDが変わると、保持しているプロファイルも新Domainのキーで実行時に再生成される。
+- ROSパッケージ更新は行わない。
+
+GitHubからの取得は必須ではない。各PCでローカルに編集した内容をそのまま反映できる。
+GitHub上のコードを取り込む場合だけ、ローカル編集との競合を確認して別途取得する。
+
+**ROS_DOMAIN_ID変更後は、各ROSノードも環境を再読み込みして再起動する。**
 
 ```bash
-# サービスと実行ファイルを削除。設定・ROS環境ファイルは保持
+source /etc/zenoh/rmw_zenoh_config/ros-env.sh
+ros2 daemon stop
+# ここでROSノードを再起動。systemd起動のROSノードも再起動する。
+```
+
+古いバージョンから移行する場合は、まずconfig/deployment.envを作り、従来のROLE・SERVER・DOMAIN_IDの値を写す（DOMAIN_IDはROS_DOMAIN_IDへ名称変更）。その後make updateを実行する。
+ROLEをcentralへ変更すると適用済み機器プロファイルは保持するが無視する。vehicle/controlへ変更する場合は必要なプロファイルをmake apply-profileで適用する。
+
+| 変更する内容 | 編集元 | 反映コマンド |
+|---|---|---|
+| ROLE・SERVER・ROS_DOMAIN_ID | config/deployment.env | make update |
+| スクリプト・サービス | scripts/・systemd/ | make update |
+| allow・denyリスト | profiles/*.json | make apply-profile DEVICE="<対象機械>" |
+
+## 削除
+
+```bash
+# サービスと実行ファイルを削除。配置済み設定・ROS環境ファイルは保持
 make uninstall
-# サービス・実行ファイルに加え、このツールの設定ディレクトリも削除
+# サービス・実行ファイルに加え、配置済み設定ディレクトリも削除
 make purge
 ```
 
-削除時は .bashrc のsource行も手動で削除する。ROSパッケージ、旧bridge、ほかの /etc/zenoh 配下のファイルには触れない。
-uninstall後に再導入する場合は保持された設定を使う `make update` を実行する。
+削除時は.bashrcのsource行も手動で削除する。ROSパッケージ、旧bridge、ほかの/etc/zenoh配下のファイルには触れない。
+ローカルリポジトリのconfig/deployment.envやprofilesは削除しない。
+uninstall後の再導入はmake updateで行える。ローカルenvを反映し、配置済みプロファイルとRUN_USERを保持する。
 
 ## 機器別allow・denyリスト
 
@@ -179,16 +228,10 @@ localhost内の通信は維持する。
 機器プロファイルは通信制限を選ぶ設定。接続先はSERVER、ROS通信グループはROS_DOMAIN_IDで決まる。
 複数機器のプロファイルは合算し、重複を除去する。**いずれかの機器にallowがあれば、中央との通信は合算後のallow一覧に限定される。他の機器についても必要な通信をallowに記載すること。**名前の間違いや不正な形式はエラーにする。
 
-### 適用・更新
+### プロファイルの適用
 
-導入済みPCは次の操作でコードを更新する。既存の現地プロファイルは保持される。
+ローカルリポジトリの `profiles/<機器名>.json` を編集し、次の操作で反映する。envやコードの更新とは別操作で、git pullやmake updateは不要。
 
-```bash
-git pull --ff-only
-make update
-```
-
-編集した配布プロファイルを適用する場合：
 
 ```bash
 make apply-profile DEVICE="<対象機械>"
@@ -221,7 +264,7 @@ NICはinstall時ではなく **router起動・再起動時** に判定する。
 プロファイル適用時のSERVERはIPv4アドレスを指定する。
 
 - 同じSERVERで別NWへ移動：makeの再実行は不要。サービス再起動でNICを再判定する。
-- SERVERのIPが変わった：deployment.envのSERVERを編集してサービスを再起動する。
+- SERVERのIPが変わった：ローカルのconfig/deployment.envのSERVERを編集し、make updateを実行する。
 - 稼働中にNICが変わった：監視で検出するとrouterを終了し、systemdの再試行でACLを再生成する。
 - 同じNICで経路が変わった：ACL対象NICは変わらない。接続断は以下の監視対象になる。
 
@@ -308,8 +351,8 @@ RUN_USERはrouterを動かすLinuxユーザーを指定する。ROSの通信相�
 
 ```bash
 # bullでログインしている場合、次の2つは同じ
-make install ROLE=vehicle DEVICE="<対象機械>"
-make install ROLE=vehicle DEVICE="<対象機械>" RUN_USER=bull
+make install DEVICE="<対象機械>"
+make install DEVICE="<対象機械>" RUN_USER=bull
 ```
 
 インストールだけ管理者権限を使い、router自体は指定ユーザーで動作する。
@@ -317,7 +360,7 @@ systemdのUserは指定ユーザー、Groupはそのプライマリグループ�
 rootは指定不可。別ユーザーを指定する場合は、そのPC上に存在するユーザーを選ぶ。
 
 ```bash
-make install ROLE=control DEVICE="<対象機械>" RUN_USER=operator
+make install DEVICE="<対象機械>" RUN_USER=operator
 ```
 
 RUN_USERはrouterサービス用。ROSノードを同じユーザーで動かす必要はないが、各ノードでRMW・Domain ID・接続設定をそろえる。

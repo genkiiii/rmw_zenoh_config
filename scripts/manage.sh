@@ -4,6 +4,23 @@ cd "$(dirname "$0")/.."
 [[ $EUID -eq 0 ]] || { echo 'Run through make (sudo required).'; exit 1; }
 config=/etc/zenoh/rmw_zenoh_config
 service=rmw-zenoh-router.service
+read_local_env() {
+  [[ -f config/deployment.env ]] || { echo 'Create config/deployment.env from config/deployment.env.example first.' >&2; exit 1; }
+  local validated
+  validated=$(python3 scripts/read-deployment.py config/deployment.env)
+  # Only validated, shell-quoted assignments from our parser are evaluated.
+  eval "$validated"
+}
+write_runtime_env() {
+  local temporary
+  temporary=$(mktemp "$config/.deployment.XXXXXX")
+  printf 'ROLE=%q\nRUN_USER=%q\nSERVER=%q\nROS_DOMAIN_ID=%q\n' "$ROLE" "$RUN_USER" "$SERVER" "$ROS_DOMAIN_ID" > "$temporary"
+  chmod 0644 "$temporary"
+  if [[ -f "$config/deployment.env" ]]; then
+    cp -a "$config/deployment.env" "$config/deployment.env.bak"
+  fi
+  mv "$temporary" "$config/deployment.env"
+}
 build_profiles() {
   python3 scripts/merge-profiles.py --directory profiles --device "${1:-}" --devices "${2:-}"
 }
@@ -22,16 +39,18 @@ apply_profile() {
 }
 case "${1:-}" in
 install)
-  role=${2:-}; user=${3:-}; server=${4:-}; domain=${5:-}; device=${6:-}; devices=${7:-}
-  if [[ "$role" == central ]]; then
+  RUN_USER=${2:-}; device=${3:-}; devices=${4:-}
+  read_local_env
+  if [[ "$ROLE" == central ]]; then
     [[ -z "$device$devices" ]] || { echo 'central does not accept DEVICE/DEVICES'; exit 1; }
   else
     build_profiles "$device" "$devices" >/dev/null
   fi
-  [[ "$role" =~ ^(central|vehicle|control)$ ]] || { echo 'ROLE=central|vehicle|control is required'; exit 1; }
-  [[ "$user" =~ ^[a-z_][a-z0-9_-]*[$]?$ ]] && id "$user" >/dev/null
-  [[ "$server" =~ ^[a-zA-Z0-9.-]+$ ]] && [[ "$domain" =~ ^[0-9]+$ ]]
-  [[ "$user" != root ]] || { echo 'Specify non-root RUN_USER'; exit 1; }
+  if [[ ! "$RUN_USER" =~ ^[a-z_][a-z0-9_-]*[$]?$ ]] || ! id "$RUN_USER" >/dev/null 2>&1; then
+    echo 'Specify an existing Linux RUN_USER' >&2
+    exit 1
+  fi
+  [[ "$RUN_USER" != root ]] || { echo 'Specify non-root RUN_USER'; exit 1; }
   [[ ! -f "$config/deployment.env" ]] || { echo 'Already installed: use make update; edit deployment.env to change deployment.'; exit 1; }
   [[ -f /opt/ros/humble/setup.bash ]]
   # Resolve shipped configuration from the installed ROS package.
@@ -39,8 +58,8 @@ install)
   [[ -f "$default" ]]
   install -d -m 0755 "$config"
   install -m 0644 "$default" "$config/router.json5"
-  printf 'ROLE=%q\nRUN_USER=%q\nSERVER=%q\nDOMAIN_ID=%q\n' "$role" "$user" "$server" "$domain" > "$config/deployment.env"
-  if [[ "$role" != central ]]; then ROLE=$role; apply_profile "$device" "$devices"; fi
+  write_runtime_env
+  if [[ "$ROLE" != central ]]; then apply_profile "$device" "$devices"; fi
   ;;
 apply-profile)
   [[ -f "$config/deployment.env" ]] || { echo "Run make install first"; exit 1; }
@@ -49,7 +68,13 @@ apply-profile)
   ;;
 update)
   [[ -f "$config/deployment.env" ]] || { echo 'Not installed'; exit 1; }
-  # Local configuration and ACL are deliberately preserved on update.
+  source "$config/deployment.env"
+  installed_user=$RUN_USER
+  read_local_env
+  RUN_USER=$installed_user
+  getent passwd "$RUN_USER" >/dev/null
+  write_runtime_env
+  # Applied profile and router.json5 are deliberately preserved on update.
   ;;
 uninstall|purge)
   systemctl disable --now "$service" 2>/dev/null || true
