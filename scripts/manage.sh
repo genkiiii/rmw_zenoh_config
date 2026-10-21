@@ -44,11 +44,17 @@ write_profile() {
   chmod 0644 "$temporary"
   mv "$temporary" "$config/selected-profiles"
 }
+set_default_profile() {
+  if [[ "$ROLE" == control && -z "$device$devices" ]]; then
+    device=control
+  fi
+}
 case "${1:-}" in
 install)
   ROLE=${2:-}; RUN_USER=${3:-}; device=${4:-}; devices=${5:-}
   [[ "$ROLE" =~ ^(central|vehicle|control)$ ]] || { echo 'ROLE=central|vehicle|control is required at install' >&2; exit 1; }
   read_local_env
+  set_default_profile
   if [[ "$ROLE" == central ]]; then
     [[ -z "$device$devices" ]] || { echo 'central does not accept DEVICE/DEVICES'; exit 1; }
   else

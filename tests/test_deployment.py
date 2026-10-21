@@ -90,3 +90,20 @@ class DeploymentTests(unittest.TestCase):
             self.assertEqual(runtime.read_text(), applied_env)
             self.assertEqual(profile.read_text(), applied_profile)
             self.assertNotEqual(run('apply-profile', 'test').returncode, 0)
+
+
+class DefaultProfileTests(unittest.TestCase):
+    def test_control_default_and_explicit_overrides(self):
+        script = (ROOT / 'scripts/manage.sh').read_text().split('case "${1:-}" in', 1)[0]
+        script = '\n'.join(line for line in script.splitlines()
+                           if not line.startswith('[[ $EUID') and not line.startswith('cd '))
+        for role, device, devices, expected in (
+                ('control', '', '', 'control'),
+                ('control', 'control01', '', 'control01'),
+                ('control', '', 'd37pxi zx200', ''),
+                ('vehicle', '', '', ''),
+                ('central', '', '', '')):
+            command = script + '\nROLE=$1; device=$2; devices=$3; set_default_profile; printf "%s" "$device"'
+            result = subprocess.run(['bash', '-c', command, 'test', role, device, devices],
+                                    capture_output=True, text=True, check=True)
+            self.assertEqual(result.stdout, expected)

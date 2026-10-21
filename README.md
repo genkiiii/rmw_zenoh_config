@@ -63,10 +63,11 @@ make install ROLE=central
 make install ROLE=vehicle DEVICE="<対象機械>"
 
 # 制御PC：制御PC専用プロファイルを指定
-make install ROLE=control DEVICE="control"
+make install ROLE=control
 ```
 
-vehicle/controlはDEVICEが必須。車載PCは自機のプロファイル、制御PCはcontrolプロファイルを選ぶ。選択は配置先のselected-profilesに記録する。
+vehicleはDEVICEが必須で、自機のプロファイルを選ぶ。controlはDEVICEを省略するとcontrol.jsonを自動選択する。選択は配置先のselected-profilesに記録する。
+制御PCで別のプロファイルを使う場合のみ、make install ROLE=control DEVICE="<プロファイル名>"で明示指定する。
 従来の複数プロファイル指定も利用可能。DEVICEにダブルクォート付きスペース区切りで指定する。
 旧引数DEVICESも互換性のため受け付けるが、DEVICEとの同時指定はエラー。
 centralではDEVICE/DEVICESを指定しない。
