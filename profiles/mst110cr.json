@@ -1,0 +1,12 @@
+{
+  "allow": {
+    "topics": [],
+    "services": [],
+    "actions": []
+  },
+  "deny": {
+    "topics": [],
+    "services": [],
+    "actions": []
+  }
+}

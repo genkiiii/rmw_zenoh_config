@@ -97,7 +97,7 @@ uninstall後に再導入する場合は保持された設定を使う `make upda
 ## 機器別allow・denyリスト
 
 `profiles/<機器名>.json` に機器別の通信制限を記載する。
-`d37pxi.json`・`zx200.json`・新規機器用の`template.json`を用意している。
+`d37pxi.json`・`zx200.json`・`mst110cr.json`・新規機器用の`template.json`を用意している。
 **配布プロファイルはすべて空であり、初期状態ではこのツールによる通信制限を追加しない。**
 
 ```json
