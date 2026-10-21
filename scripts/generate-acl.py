@@ -63,44 +63,65 @@ def normalize_profile(profile):
                 if not isinstance(name, str) or not re.fullmatch(r"(?:/[A-Za-z_][A-Za-z0-9_]*)+", name):
                     raise ValueError("ROS names must be absolute, with no wildcards")
             normalized[mode][kind] = sorted(set(names))
-    if any(normalized["allow"].values()):
-        raise ValueError("allow lists are reserved and must be empty in this release")
     return normalized
+
+
+DATA_MESSAGES = ["put", "delete", "declare_subscriber", "query", "reply", "declare_queryable"]
+GRAPH_MESSAGES = ["liveliness_token", "liveliness_query", "declare_liveliness_subscriber"]
+
+
+def entity_keys(section, domain):
+    names = set(section["topics"] + section["services"])
+    for action in section["actions"]:
+        for suffix in ("send_goal", "get_result", "cancel_goal", "feedback", "status"):
+            names.add(action + "/_action/" + suffix)
+    data_keys, graph_keys = [], []
+    for name in sorted(names):
+        data_keys.append(f"{domain}/{name.lstrip('/')}/*/*")
+        graph_keys.append(f"@ros2_lv/{domain}/" + "*/" * 7
+                          + name.replace("/", "%") + "/*/*/*")
+    return data_keys, graph_keys
 
 
 def build_acl(profile, domain, interface):
     if not str(domain).isdigit():
         raise ValueError("DOMAIN_ID must be a nonnegative integer")
     normalized = normalize_profile(profile)
-    denied = normalized["deny"]
-    names = set(denied["topics"] + denied["services"])
-    for action in denied["actions"]:
-        for suffix in ("send_goal", "get_result", "cancel_goal", "feedback", "status"):
-            names.add(action + "/_action/" + suffix)
-    if not names:
+    whitelist = any(normalized["allow"].values())
+    rules, central_rules = [], []
+
+    def add_rule(identifier, permission, messages, keys, central=True):
+        rules.append({"id": identifier, "permission": permission,
+                      "flows": ["ingress", "egress"],
+                      "messages": messages, "key_exprs": keys})
+        if central:
+            central_rules.append(identifier)
+
+    for mode in ("deny", "allow"):
+        data, graph = entity_keys(normalized[mode], domain)
+        if data:
+            add_rule(f"{mode}-action-data", mode, DATA_MESSAGES, data)
+            add_rule(f"{mode}-action-discovery", mode, GRAPH_MESSAGES, graph)
+    if not rules:
         return None
-    data_keys, graph_keys = [], []
-    for name in sorted(names):
-        data_keys.append(f"{domain}/{name.lstrip('/')}/*/*")
-        graph_keys.append(f"@ros2_lv/{domain}/" + "*/" * 7
-                          + name.replace("/", "%") + "/*/*/*")
-    return {
-        "enabled": True,
-        "default_permission": "allow",
-        "rules": [
-            {"id": "deny-action-data", "permission": "deny",
-             "flows": ["ingress", "egress"],
-             "messages": ["put", "delete", "declare_subscriber", "query", "reply", "declare_queryable"],
-             "key_exprs": sorted(set(data_keys))},
-            {"id": "deny-action-discovery", "permission": "deny",
-             "flows": ["ingress", "egress"],
-             "messages": ["liveliness_token", "liveliness_query", "declare_liveliness_subscriber"],
-             "key_exprs": sorted(set(graph_keys))}
-        ],
-        "subjects": [{"id": "central-route", "interfaces": [interface]}],
-        "policies": [{"subjects": ["central-route"],
-                      "rules": ["deny-action-data", "deny-action-discovery"]}]
-    }
+    subjects = [{"id": "central-route", "interfaces": [interface]}]
+    policies = [{"subjects": ["central-route"], "rules": central_rules}]
+    if whitelist:
+        # Graph-wide queries/subscriptions must be possible, but their individual
+        # token deliveries still pass the exact entity allow/deny rules above.
+        add_rule("allow-graph-requests", "allow",
+                 ["liveliness_query", "declare_liveliness_subscriber"],
+                 [f"@ros2_lv/{domain}/**"])
+        add_rule("allow-node-discovery", "allow", ["liveliness_token"],
+                 [f"@ros2_lv/{domain}/*/*/*/NN/*/*/*"])
+        # default deny is global, so explicitly preserve all loopback traffic.
+        add_rule("allow-local", "allow", DATA_MESSAGES + GRAPH_MESSAGES,
+                 ["**", "@ros2_lv/**"], central=False)
+        subjects.append({"id": "local", "interfaces": ["lo"]})
+        policies.append({"subjects": ["local"], "rules": ["allow-local"]})
+    return {"enabled": True,
+            "default_permission": "deny" if whitelist else "allow",
+            "rules": rules, "subjects": subjects, "policies": policies}
 
 
 def main():

@@ -40,9 +40,13 @@ class ProfileTests(unittest.TestCase):
             self.assertIn('35/robot/state/*/*', keys)
             self.assertIn('35/robot/reset/*/*', keys)
 
-    def test_nonempty_allow_never_silently_ignored(self):
-        with self.assertRaisesRegex(ValueError, 'reserved'):
-            merge.acl.normalize_profile({'allow': {'topics': ['/robot/state']}})
+    def test_nonempty_allow_switches_to_whitelist(self):
+        policy = merge.acl.build_acl({'allow': {'topics': ['/robot/state']}}, '35', 'eth0')
+        self.assertEqual(policy['default_permission'], 'deny')
+        local = next(s for s in policy['subjects'] if s['id'] == 'local')
+        self.assertEqual(local['interfaces'], ['lo'])
+        rule = next(r for r in policy['rules'] if r['id'] == 'allow-action-data')
+        self.assertIn('35/robot/state/*/*', rule['key_exprs'])
 
     def test_empty_profile_does_not_resolve_interface_or_emit_override(self):
         with patch('sys.argv', ['generate-acl', '--profile', str(root / 'profiles/d37pxi.json'), '--server', '192.168.1.70', '--domain', '35']), \
@@ -51,3 +55,36 @@ class ProfileTests(unittest.TestCase):
             merge.acl.main()
             detect.assert_not_called()
             stdout.write.assert_not_called()
+
+class MixedPolicyTests(unittest.TestCase):
+    def test_allow_and_deny_same_name_are_both_generated(self):
+        section = {'topics': ['/robot/state'], 'services': [], 'actions': []}
+        policy = merge.acl.build_acl({'allow': section, 'deny': section}, '35', 'eth0')
+        matching = [r for r in policy['rules']
+                    if '35/robot/state/*/*' in r['key_exprs']]
+        self.assertEqual({r['permission'] for r in matching}, {'allow', 'deny'})
+        self.assertEqual(policy['default_permission'], 'deny')
+        central = next(p for p in policy['policies'] if p['subjects'] == ['central-route'])
+        self.assertNotIn('allow-local', central['rules'])
+        self.assertIn('allow-action-data', central['rules'])
+        self.assertIn('deny-action-data', central['rules'])
+
+    def test_allowed_action_includes_services_topics_and_discovery(self):
+        policy = merge.acl.build_acl({'allow': {'actions': ['/d37pxi/zenoh/navigate_to_pose']}}, '35', 'eth0')
+        data = next(r for r in policy['rules'] if r['id'] == 'allow-action-data')
+        graph = next(r for r in policy['rules'] if r['id'] == 'allow-action-discovery')
+        self.assertEqual(len(data['key_exprs']), 5)
+        self.assertEqual(len(graph['key_exprs']), 5)
+        self.assertIn('35/d37pxi/zenoh/navigate_to_pose/_action/get_result/*/*', data['key_exprs'])
+        self.assertIn('35/d37pxi/zenoh/navigate_to_pose/_action/feedback/*/*', data['key_exprs'])
+        self.assertFalse(any('35/d37pxi/navigate_to_pose/' in k for k in data['key_exprs']))
+
+    def test_profile_union_enables_allow_mode_and_keeps_other_denials(self):
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, 'a.json').write_text(json.dumps({'allow': {'topics': ['/a/state']}}))
+            Path(directory, 'b.json').write_text(json.dumps({'deny': {'services': ['/b/reset']}}))
+            profile = merge.merge_profiles(directory, devices='a b')
+            policy = merge.acl.build_acl(profile, '35', 'eth0')
+            self.assertEqual(policy['default_permission'], 'deny')
+            self.assertTrue(any('35/b/reset/*/*' in r['key_exprs'] and r['permission'] == 'deny'
+                                for r in policy['rules']))

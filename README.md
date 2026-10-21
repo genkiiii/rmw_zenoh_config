@@ -131,8 +131,8 @@ uninstall後に再導入する場合は保持された設定を使う `make upda
 - topics：ROS Topicの絶対名。
 - services：ROS Serviceの絶対名。
 - actions：ROS Actionの絶対名。関連する5つの通信と探索情報もツール側で扱う。
-- 空配列は制限追加なし。名前のワイルドカード指定は未対応。
-- **今回の実装はdenyのみ有効。allow欄は将来用で空のままにする。値を入れると、無視せずエラーにする。**
+- allow・denyがすべて空なら制限追加なし。名前のワイルドカード指定は未対応。
+- **allowがすべて空なら基本許可でdenyだけ遮断する。allowに1件でも記載すると、中央との通信は合算したallow一覧に限定する。両方に一致する通信はdenyが優先する。**
 - denyは中央への経路のNICにだけ適用し、localhost側の通信は維持する。
 - 名前は種類間で重複する可能性があるため、denyは指定名に一致するデータ・探索キーに適用する。通常のROS命名でTopicとServiceに同じ完全名を使う構成は避ける。
 
@@ -149,11 +149,15 @@ uninstall後に再導入する場合は保持された設定を使う `make upda
 }
 ```
 
-この例では `/d37pxi/zenoh/navigate_to_pose` は禁止しない。
+この例ではallowが空なので `/d37pxi/zenoh/navigate_to_pose` は禁止しない。
+
+共通Actionだけを中央との通信で許可する場合、allow.actionsへ `/d37pxi/zenoh/navigate_to_pose` を記載する。
+この場合、一覧にない状態Topic・パラメータServiceなども中央との間では遮断される。必要なら明示的に追加する。
+localhost内の通信は維持する。
 サンプルは説明用であり、配布プロファイルには自動反映しない。
 
 機器プロファイルは通信制限を選ぶ設定。接続先はSERVER、ROS通信グループはROS_DOMAIN_IDで決まる。
-複数機器のプロファイルは合算し、重複を除去する。名前の間違いや不正な形式はエラーにする。
+複数機器のプロファイルは合算し、重複を除去する。**いずれかの機器にallowがあれば、中央との通信は合算後のallow一覧に限定される。他の機器についても必要な通信をallowに記載すること。**名前の間違いや不正な形式はエラーにする。
 
 ### 適用・更新
 
@@ -185,8 +189,9 @@ cp profiles/template.json profiles/my_machine.json
 ```
 
 対応キー形式はROS Humble rmw_zenoh 0.1.11。生成ACLは起動時のZENOH_CONFIG_OVERRIDEで適用する。
+localhostのlo接続はallowモードでも維持する。allowモードでは必要なROSノードの探索情報と探索要求も許可するが、一覧にないTopic/Service/Actionの実データ・エンティティ探索は許可しない。
 空プロファイルはACLを生成せず、router.json5のaccess_controlを変更しない。
-非空のdenyプロファイルはrouter.json5内のaccess_control全体を置き換えるため、手書きACLとのマージは未対応。
+非空のプロファイルはrouter.json5内のaccess_control全体を置き換えるため、手書きACLとのマージは未対応。
 
 ### NIC自動取得とネットワーク変更
 
