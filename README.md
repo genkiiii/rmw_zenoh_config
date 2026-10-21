@@ -13,7 +13,7 @@ Ubuntu 22.04 / ROS 2 Humble向けのrmw_zenoh router導入・更新用リポジ�
 
 ```bash
 sudo apt update
-sudo apt install make git ros-humble-rmw-zenoh-cpp ros-humble-demo-nodes-cpp netcat-openbsd
+sudo apt install make git python3 iproute2 ros-humble-rmw-zenoh-cpp ros-humble-demo-nodes-cpp netcat-openbsd
 ```
 
 ## インストール
@@ -82,32 +82,101 @@ make purge
 削除時は .bashrc のsource行も手動で削除する。ROSパッケージ、旧bridge、ほかの /etc/zenoh 配下のファイルには触れない。
 uninstall後に再導入する場合は保持された設定を使う `make update` を実行する。
 
-## allow list
+## 機器別denyリスト（d37pxi）
 
-中央routerは標準設定（ACL無効＝全許可）を基準とする。車載routerで無線側の送受信を制限する。
-**このリポジトリの初期状態では車載側も全許可。allow listはまだ有効ではない。**
+中央routerは全許可を維持する。車載・制御PCには同じ機器プロファイルを選択できる。
+機器プロファイルを指定しなければ、このツールはACLを追加しない。
 
-設定先：`/etc/zenoh/rmw_zenoh_config/router.json5` の `access_control`。
-起動スクリプトはトポロジー設定のみ上書きし、このACL設定は保持する。
-ACL構文・ROS TopicのZenohキー表現は、導入バージョンを確認して作成する。
-Topic名をそのままzenoh-bridge-ros2ddsのallow設定へ書く方式とは異なる。
-
-設計要件：
-
-- localhost側のROS通信は維持する。
-- 中央向け経路では必要なTopicデータのみ許可する。
-- 探索用liveliness、Service、Actionの関連通信を考慮する。
-- 帯域削減には車載側の送信前の制限も必要。中央で受信後に捨てるだけでは削減できない。
-- 対象インターフェースはRajant本体の名前ではなく、このUbuntu PCの経路のdev名で確認する。
-- 中央全許可はアクセス制御の境界にならない。車載側ルールに加え、中央の接続元ネットワーク制限も適用する。
+新規導入：
 
 ```bash
-dpkg-query -W ros-humble-rmw-zenoh-cpp ros-humble-zenoh-cpp-vendor
-ip route get 192.168.1.70
+make install ROLE=vehicle DEVICE=d37pxi
+# 制御PCの場合
+make install ROLE=control DEVICE=d37pxi
 ```
 
-この結果と許可対象のTopic名・型・方向・Service/Actionを用意してルールを確定する。
-ルール導入時は許可Topic、禁止Topic、ローカル通信、ROS graph、Service/Action、再接続を検証する。
+既に導入済みなら、再インストールは不要：
+
+```bash
+git pull --ff-only
+make update
+make apply-profile DEVICE=d37pxi
+```
+
+`make apply-profile` はローカルの機器プロファイルを置き換えてrouterを再起動する。
+既存のdeny-profile.jsonはdeny-profile.json.bakへ保存する（前回バックアップは上書き）。
+`make update` は適用済みプロファイルを保持する。
+
+配置先：`/etc/zenoh/rmw_zenoh_config/deny-profile.json`。
+配布元：`profiles/d37pxi.json`。
+
+```json
+{
+  "deny_actions": ["/d37pxi/navigate_to_pose"]
+}
+```
+
+このActionのsend_goal/get_result/cancel_goal/feedback/statusのデータと、対応する探索情報を、中央への経路のNICで送受信禁止にする。
+localhost側の通信は制限しない。`/d37pxi/zenoh/navigate_to_pose` は禁止しない。
+対応キー形式はROS Humble rmw_zenoh 0.1.11。異なるバージョンは実装・設定形式の確認が必要。
+
+生成したACLは `ZENOH_CONFIG_OVERRIDE` の `access_control` として適用する。
+**プロファイル適用中はrouter.json5内のaccess_control全体を置き換える。手書きACLとの併用・マージは未対応。**
+生成対象以外は既定で許可するdeny方式であり、allow listには対応していない。
+
+### NIC自動取得とネットワーク変更
+
+NICはinstall時ではなく **router起動・再起動時** に判定する。
+`deployment.env` のSERVERを読み、`ip -j -4 route get SERVER` によりOSが選ぶ経路のdevを取得する。
+サーバへの通信でNICを探索する処理ではない。lo・ローカルIP・経路不明はエラーにし、ACLなしでは起動しない。
+プロファイル適用時のSERVERはIPv4アドレスを指定する。
+
+- 同じSERVERで別NWへ移動：makeの再実行は不要。サービス再起動でNICを再判定する。
+- SERVERのIPが変わった：deployment.envのSERVERを編集してサービスを再起動する。
+- 稼働中にNICが変わった：監視で検出するとrouterを終了し、systemdの再試行でACLを再生成する。
+- 同じNICで経路が変わった：ACL対象NICは変わらない。接続断は以下の監視対象になる。
+
+```bash
+sudo systemctl restart rmw-zenoh-router.service
+```
+
+自動判定はACLの対象NICを選ぶだけで、ソケットをNICにbindする処理ではない。
+複数経路やVPNを使う場合は切替試験を実施すること。切替検出までの監視間隔は最大10秒程度あるため、厳密な分離境界として扱う場合は別途ネットワーク・認証設計が必要。
+中央と同じNICを通るほかのZenoh接続にも、このdenyルールは適用される。
+
+### 中央への到達性と停止・再試行
+
+vehicle/controlにはTCP到達性監視を適用する（プロファイル未指定の場合も対象）。centralは自己監視しない。
+
+- 起動前：SERVERのTCP 7447へ接続できなければrouterを起動せず失敗終了する。
+- 稼働中：10秒間隔、接続タイムアウト3秒で確認。3回連続失敗でrouterを停止し失敗終了する。
+- systemdが5秒後に再試行する。中央復旧後にrouterを起動する。
+- denyプロファイル適用中は経路NICの変更も監視し、検出時は3回を待たず停止・再生成する。
+
+**中央切断時にはローカルrouterも停止する。車載PC内の通信継続は保証しない。**
+既存の直接peer接続が直ちにすべて切れることや、機体の安全停止を保証するものでもない。
+この監視はTCPポートへの到達性であり、Zenohセッション・ROS通信の健全性の保証ではない。
+プローブはTCP接続後すぐ切断するため、中央側に未完了ハンドシェイクのログが出る場合がある。
+
+### 適用後の検証
+
+実機Ubuntu上で、車載PCと制御PCの両側で確認する。
+
+1. routerログの `ACL: SERVER=..., interface=...` が実際の経路と一致する。
+2. 生Actionの遠隔エンドポイントが発見されず、各PC内のAction接続は動作する。
+3. 共通Action経由でGoal/Feedback/Result/Cancelが往復する。
+4. 他Topicの通信は維持する。
+5. ネットワーク切断後にrouterが停止・再試行し、復旧後に再接続する。
+6. NIC変更後に対象NICが再判定される。
+
+同名Actionの一覧表示だけでは遠隔遮断の証明にならない。ROSノード情報と、制御されたテスト用Actionサーバで通信先を確認する。実機を動かすGoalを疎通確認だけのために送らない。
+
+プロファイルを解除する場合（denyが解除される）：
+
+```bash
+sudo mv /etc/zenoh/rmw_zenoh_config/deny-profile.json /etc/zenoh/rmw_zenoh_config/deny-profile.json.disabled
+sudo systemctl restart rmw-zenoh-router.service
+```
 
 ## 動作確認
 
@@ -137,3 +206,9 @@ ESTABはTCP接続の確認。さらに別PC間でtalker/listenerを実行する�
 - [Zenoh access control](https://zenoh.io/docs/manual/access-control/)
 
 本リポジトリの実機検証は利用先Ubuntuで行う。最新値優先のQoS、指令の有効期限、切断時の安全処理はアプリ側でも設計する。
+
+キー形式・ACLの確認元：
+- [rmw_zenoh 0.1.11 liveliness_utils.cpp](https://github.com/ros2/rmw_zenoh/blob/0.1.11/rmw_zenoh_cpp/src/detail/liveliness_utils.cpp)
+- [rmw_zenoh 0.1.11 vendor](https://github.com/ros2/rmw_zenoh/blob/0.1.11/zenoh_cpp_vendor/CMakeLists.txt)
+
+ローカルテストは生成キー・ルート変更・到達不能時の停止処理を検証する。ROS/Zenohを含む実機統合試験は未実施。

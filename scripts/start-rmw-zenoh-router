@@ -12,5 +12,20 @@ else
   listener='tcp/127.0.0.1:7447'
 fi
 export ZENOH_CONFIG_OVERRIDE="mode=\"router\";listen/endpoints=[\"${listener}\"];connect/endpoints=${endpoints};scouting/multicast/enabled=false;scouting/gossip/enabled=true;scouting/gossip/multihop=false"
+if [[ -f /etc/zenoh/rmw_zenoh_config/deny-profile.json ]]; then
+  if [[ "$ROLE" == central ]]; then
+    echo 'Device deny profiles must not be applied to the central router' >&2
+    exit 1
+  fi
+  acl_override=$(python3 /usr/local/lib/rmw_zenoh_config/generate-acl.py \
+    --profile /etc/zenoh/rmw_zenoh_config/deny-profile.json \
+    --server "$SERVER" --domain "$DOMAIN_ID")
+  export ZENOH_CONFIG_OVERRIDE="${ZENOH_CONFIG_OVERRIDE};${acl_override}"
+fi
 export RUST_LOG=zenoh=info
-exec ros2 run rmw_zenoh_cpp rmw_zenohd
+if [[ "$ROLE" == central ]]; then
+  exec ros2 run rmw_zenoh_cpp rmw_zenohd
+else
+  exec python3 /usr/local/lib/rmw_zenoh_config/supervise-router.py \
+    --server "$SERVER" -- ros2 run rmw_zenoh_cpp rmw_zenohd
+fi

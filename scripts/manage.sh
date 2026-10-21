@@ -4,9 +4,21 @@ cd "$(dirname "$0")/.."
 [[ $EUID -eq 0 ]] || { echo 'Run through make (sudo required).'; exit 1; }
 config=/etc/zenoh/rmw_zenoh_config
 service=rmw-zenoh-router.service
+validate_profile() {
+  [[ "${1:-}" =~ ^[a-zA-Z0-9_-]+$ && -f "profiles/$1.json" ]] || { echo 'Unknown DEVICE'; exit 1; }
+}
+apply_profile() {
+  [[ "$ROLE" != central ]] || { echo 'Central router does not accept device deny profiles'; exit 1; }
+  validate_profile "$1"
+  if [[ -f "$config/deny-profile.json" ]]; then
+    cp -a "$config/deny-profile.json" "$config/deny-profile.json.bak"
+  fi
+  install -m 0644 "profiles/$1.json" "$config/deny-profile.json"
+}
 case "${1:-}" in
 install)
-  role=${2:-}; user=${3:-}; server=${4:-}; domain=${5:-}
+  role=${2:-}; user=${3:-}; server=${4:-}; domain=${5:-}; device=${6:-}
+  if [[ -n "$device" ]]; then validate_profile "$device"; [[ "$role" != central ]]; fi
   [[ "$role" =~ ^(central|vehicle|control)$ ]] || { echo 'ROLE=central|vehicle|control is required'; exit 1; }
   [[ "$user" =~ ^[a-z_][a-z0-9_-]*[$]?$ ]] && id "$user" >/dev/null
   [[ "$server" =~ ^[a-zA-Z0-9.-]+$ ]] && [[ "$domain" =~ ^[0-9]+$ ]]
@@ -19,6 +31,12 @@ install)
   install -d -m 0755 "$config"
   install -m 0644 "$default" "$config/router.json5"
   printf 'ROLE=%q\nRUN_USER=%q\nSERVER=%q\nDOMAIN_ID=%q\n' "$role" "$user" "$server" "$domain" > "$config/deployment.env"
+  if [[ -n "$device" ]]; then ROLE=$role; apply_profile "$device"; fi
+  ;;
+apply-profile)
+  [[ -f "$config/deployment.env" ]] || { echo "Run make install first"; exit 1; }
+  source "$config/deployment.env"
+  apply_profile "${2:-}"
   ;;
 update)
   [[ -f "$config/deployment.env" ]] || { echo 'Not installed'; exit 1; }
@@ -27,15 +45,20 @@ update)
 uninstall|purge)
   systemctl disable --now "$service" 2>/dev/null || true
   rm -f /etc/systemd/system/"$service" /usr/local/bin/start-rmw-zenoh-router
+  rm -f /usr/local/lib/rmw_zenoh_config/generate-acl.py /usr/local/lib/rmw_zenoh_config/supervise-router.py
+  rmdir /usr/local/lib/rmw_zenoh_config 2>/dev/null || true
   systemctl daemon-reload
   if [[ "$1" == purge ]]; then rm -rf "$config"; fi
   echo 'Service removed. Remove the source line from your .bashrc if no longer needed.'
   exit 0
   ;;
-*) echo 'Usage: manage.sh install|update|uninstall|purge'; exit 1 ;;
+*) echo 'Usage: manage.sh install|update|apply-profile|uninstall|purge'; exit 1 ;;
 esac
 source "$config/deployment.env"
 getent passwd "$RUN_USER" >/dev/null
+install -d -m 0755 /usr/local/lib/rmw_zenoh_config
+install -m 0644 scripts/generate-acl.py /usr/local/lib/rmw_zenoh_config/generate-acl.py
+install -m 0644 scripts/supervise-router.py /usr/local/lib/rmw_zenoh_config/supervise-router.py
 install -m 0755 scripts/start-rmw-zenoh-router /usr/local/bin/start-rmw-zenoh-router
 install -m 0644 scripts/ros-env.sh "$config/ros-env.sh"
 group=$(id -gn "$RUN_USER")
