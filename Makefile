@@ -3,15 +3,16 @@ ROLE ?=
 RUN_USER ?= $(shell id -un)
 SERVER ?= 192.168.1.70
 DOMAIN_ID ?= 35
+DEVICES ?=
 DEVICE ?=
 
 .PHONY: install update uninstall purge status logs check apply-profile
 install:
-	sudo bash scripts/manage.sh install "$(ROLE)" "$(RUN_USER)" "$(SERVER)" "$(DOMAIN_ID)" "$(DEVICE)"
+	sudo bash scripts/manage.sh install "$(ROLE)" "$(RUN_USER)" "$(SERVER)" "$(DOMAIN_ID)" "$(DEVICE)" "$(DEVICES)"
 update:
 	sudo bash scripts/manage.sh update
 apply-profile:
-	sudo bash scripts/manage.sh apply-profile "$(DEVICE)"
+	sudo bash scripts/manage.sh apply-profile "$(DEVICE)" "$(DEVICES)"
 uninstall:
 	sudo bash scripts/manage.sh uninstall
 purge:

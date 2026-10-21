@@ -1,3 +1,12 @@
 {
-  "deny_actions": ["/d37pxi/navigate_to_pose"]
+  "allow": {
+    "topics": [],
+    "services": [],
+    "actions": []
+  },
+  "deny": {
+    "topics": [],
+    "services": [],
+    "actions": []
+  }
 }

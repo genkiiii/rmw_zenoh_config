@@ -18,25 +18,36 @@ sudo apt install make git python3 iproute2 ros-humble-rmw-zenoh-cpp ros-humble-d
 
 ## インストール
 
-リポジトリを取得したディレクトリで、実際の役割を1つ選んで実行する。
-sudoで実行しないこと。
+通常ユーザーで実行する。`sudo make`は使用しない。必要な処理だけ内部でsudoを使う。
 
 ```bash
-# 車載PC
-make install ROLE=vehicle
-# 制御用PC
-make install ROLE=control
-# 中央VMのみ
+# 中央PC：機器指定なし
 make install ROLE=central
+
+# 車載PC：搭載する建機を指定
+make install ROLE=vehicle DEVICE=d37pxi
+
+# 制御PC：対象の建機を指定
+make install ROLE=control DEVICE=d37pxi
+
+# 複数の建機を扱う制御PC
+make install ROLE=control DEVICES="d37pxi zx200"
 ```
 
-必要なら `SERVER=192.168.1.70 DOMAIN_ID=35` を追加指定する。
+vehicle/controlはDEVICEまたはDEVICESが必須。両方の同時指定はエラー。
+centralではDEVICE/DEVICESを指定しない。
+
+既定値はSERVER=192.168.1.70、DOMAIN_ID=35。
+RUN_USERは省略可能。省略時はコマンドを実行したユーザーでrouterを動かす。
+
+```bash
+make install ROLE=vehicle DEVICE=d37pxi SERVER=192.168.1.70 DOMAIN_ID=35
+```
+
 中央は0.0.0.0:7447で待受、ほかは127.0.0.1:7447で待受し中央へ接続する。
 multicast無効、gossip有効、multihop無効。
-
-初回導入時に、インストール済みパッケージの標準router設定をコピーする。
-ロール設定は `/etc/zenoh/rmw_zenoh_config/deployment.env` に保存する。
-インストール後に失敗した場合はログと設定を確認し `make update` で再適用する。
+初回導入時にインストール済みROSパッケージの標準router設定をコピーする。
+役割・接続先などは `/etc/zenoh/rmw_zenoh_config/deployment.env` に保存する。
 
 ## ROSノードの環境
 
@@ -83,47 +94,86 @@ make purge
 削除時は .bashrc のsource行も手動で削除する。ROSパッケージ、旧bridge、ほかの /etc/zenoh 配下のファイルには触れない。
 uninstall後に再導入する場合は保持された設定を使う `make update` を実行する。
 
-## 機器別denyリスト（d37pxi）
+## 機器別allow・denyリスト
 
-中央routerは全許可を維持する。車載・制御PCには同じ機器プロファイルを選択できる。
-機器プロファイルを指定しなければ、このツールはACLを追加しない。
+`profiles/<機器名>.json` に機器別の通信制限を記載する。
+`d37pxi.json`・`zx200.json`・新規機器用の`template.json`を用意している。
+**配布プロファイルはすべて空であり、初期状態ではこのツールによる通信制限を追加しない。**
 
-新規導入：
-
-```bash
-make install ROLE=vehicle DEVICE=d37pxi
-# 制御PCの場合
-make install ROLE=control DEVICE=d37pxi
+```json
+{
+  "allow": {
+    "topics": [],
+    "services": [],
+    "actions": []
+  },
+  "deny": {
+    "topics": [],
+    "services": [],
+    "actions": []
+  }
+}
 ```
 
-既に導入済みなら、再インストールは不要：
+- topics：ROS Topicの絶対名。
+- services：ROS Serviceの絶対名。
+- actions：ROS Actionの絶対名。関連する5つの通信と探索情報もツール側で扱う。
+- 空配列は制限追加なし。名前のワイルドカード指定は未対応。
+- **今回の実装はdenyのみ有効。allow欄は将来用で空のままにする。値を入れると、無視せずエラーにする。**
+- denyは中央への経路のNICにだけ適用し、localhost側の通信は維持する。
+- 名前は種類間で重複する可能性があるため、denyは指定名に一致するデータ・探索キーに適用する。通常のROS命名でTopicとServiceに同じ完全名を使う構成は避ける。
+
+例えば生ActionをPC内に限定する場合、deny.actionsに記載する。
+
+```json
+{
+  "allow": {"topics": [], "services": [], "actions": []},
+  "deny": {
+    "topics": [],
+    "services": [],
+    "actions": ["/d37pxi/navigate_to_pose"]
+  }
+}
+```
+
+この例では `/d37pxi/zenoh/navigate_to_pose` は禁止しない。
+サンプルは説明用であり、配布プロファイルには自動反映しない。
+
+機器プロファイルは通信制限を選ぶ設定。接続先はSERVER、ROS通信グループはROS_DOMAIN_IDで決まる。
+複数機器のプロファイルは合算し、重複を除去する。名前の間違いや不正な形式はエラーにする。
+
+### 適用・更新
+
+導入済みPCは次の操作でコードを更新する。既存の現地プロファイルは保持される。
 
 ```bash
 git pull --ff-only
 make update
+```
+
+編集した配布プロファイルを適用する場合：
+
+```bash
 make apply-profile DEVICE=d37pxi
+# 複数機器
+make apply-profile DEVICES="d37pxi zx200"
 ```
 
-`make apply-profile` はローカルの機器プロファイルを置き換えてrouterを再起動する。
-既存のdeny-profile.jsonはdeny-profile.json.bakへ保存する（前回バックアップは上書き）。
-`make update` は適用済みプロファイルを保持する。
+指定した全プロファイルを合算し、適用中のプロファイル一式を置き換える。維持したい機器もすべて指定する。
+適用前のプロファイルはdeny-profile.json.bakへ保存する（前回バックアップは上書き）。
+**空プロファイルの再適用は、このツールで設定していたdeny制限の解除になる。**
+適用時はrouterを再起動するため、通信が一時中断する。
 
-配置先：`/etc/zenoh/rmw_zenoh_config/deny-profile.json`。
-配布元：`profiles/d37pxi.json`。
+適用先は `/etc/zenoh/rmw_zenoh_config/deny-profile.json`。旧形式のdeny_actionsも既存PCとの互換性のため読み込める。
+新規機器はtemplate.jsonをコピーして作成する。
 
-```json
-{
-  "deny_actions": ["/d37pxi/navigate_to_pose"]
-}
+```bash
+cp profiles/template.json profiles/my_machine.json
 ```
 
-このActionのsend_goal/get_result/cancel_goal/feedback/statusのデータと、対応する探索情報を、中央への経路のNICで送受信禁止にする。
-localhost側の通信は制限しない。`/d37pxi/zenoh/navigate_to_pose` は禁止しない。
-対応キー形式はROS Humble rmw_zenoh 0.1.11。異なるバージョンは実装・設定形式の確認が必要。
-
-生成したACLは `ZENOH_CONFIG_OVERRIDE` の `access_control` として適用する。
-**プロファイル適用中はrouter.json5内のaccess_control全体を置き換える。手書きACLとの併用・マージは未対応。**
-生成対象以外は既定で許可するdeny方式であり、allow listには対応していない。
+対応キー形式はROS Humble rmw_zenoh 0.1.11。生成ACLは起動時のZENOH_CONFIG_OVERRIDEで適用する。
+空プロファイルはACLを生成せず、router.json5のaccess_controlを変更しない。
+非空のdenyプロファイルはrouter.json5内のaccess_control全体を置き換えるため、手書きACLとのマージは未対応。
 
 ### NIC自動取得とネットワーク変更
 
@@ -212,3 +262,25 @@ ESTABはTCP接続の確認。さらに別PC間でtalker/listenerを実行する�
 - [rmw_zenoh 0.1.11 vendor](https://github.com/ros2/rmw_zenoh/blob/0.1.11/zenoh_cpp_vendor/CMakeLists.txt)
 
 ローカルテストは生成キー・ルート変更・到達不能時の停止処理を検証する。ROS/Zenohを含む実機統合試験は未実施。
+
+## 補足：サービス実行ユーザー（RUN_USER）
+
+RUN_USERはrouterを動かすLinuxユーザーを指定する。ROSの通信相手・建機の識別には使わない。
+省略時はmakeを実行したユーザーを使う。
+
+```bash
+# bullでログインしている場合、次の2つは同じ
+make install ROLE=vehicle DEVICE=d37pxi
+make install ROLE=vehicle DEVICE=d37pxi RUN_USER=bull
+```
+
+インストールだけ管理者権限を使い、router自体は指定ユーザーで動作する。
+systemdのUserは指定ユーザー、Groupはそのプライマリグループになる。
+rootは指定不可。別ユーザーを指定する場合は、そのPC上に存在するユーザーを選ぶ。
+
+```bash
+make install ROLE=control DEVICE=d37pxi RUN_USER=operator
+```
+
+RUN_USERはrouterサービス用。ROSノードを同じユーザーで動かす必要はないが、各ノードでRMW・Domain ID・接続設定をそろえる。
+systemdはユーザーの.bashrcを読み込まないため、ROSノード用サービスではros-env.shを明示的に読み込む。

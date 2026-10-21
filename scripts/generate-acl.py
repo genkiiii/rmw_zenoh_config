@@ -35,25 +35,49 @@ def detect_interface(server):
     return interface
 
 
+def normalize_profile(profile):
+    if not isinstance(profile, dict):
+        raise ValueError("Profile must be an object")
+    # Preserve compatibility with already installed action-only profiles.
+    if set(profile) == {"deny_actions"}:
+        profile = {"deny": {"actions": profile["deny_actions"]}}
+    if not profile or set(profile) - {"allow", "deny"}:
+        raise ValueError("Profile must contain allow/deny sections")
+    normalized = {}
+    for mode in ("allow", "deny"):
+        section = profile.get(mode, {})
+        if not isinstance(section, dict) or set(section) - {"topics", "services", "actions"}:
+            raise ValueError("Sections support only topics/services/actions")
+        normalized[mode] = {}
+        for kind in ("topics", "services", "actions"):
+            names = section.get(kind, [])
+            if not isinstance(names, list):
+                raise ValueError(f"{mode}.{kind} must be a list")
+            for name in names:
+                if not isinstance(name, str) or not re.fullmatch(r"(?:/[A-Za-z_][A-Za-z0-9_]*)+", name):
+                    raise ValueError("ROS names must be absolute, with no wildcards")
+            normalized[mode][kind] = sorted(set(names))
+    if any(normalized["allow"].values()):
+        raise ValueError("allow lists are reserved and must be empty in this release")
+    return normalized
+
+
 def build_acl(profile, domain, interface):
     if not str(domain).isdigit():
         raise ValueError("DOMAIN_ID must be a nonnegative integer")
-    if set(profile) != {"deny_actions"} or not isinstance(profile["deny_actions"], list):
-        raise ValueError("Profile must contain only deny_actions: [absolute action names]")
-    actions = profile["deny_actions"]
-    if not actions:
-        raise ValueError("deny_actions must not be empty")
-    data_keys, graph_keys = [], []
-    for action in actions:
-        if not isinstance(action, str) or not re.fullmatch(r"(?:/[A-Za-z_][A-Za-z0-9_]*)+", action):
-            raise ValueError("Action names must be absolute, with no wildcards")
+    normalized = normalize_profile(profile)
+    denied = normalized["deny"]
+    names = set(denied["topics"] + denied["services"])
+    for action in denied["actions"]:
         for suffix in ("send_goal", "get_result", "cancel_goal", "feedback", "status"):
-            name = action + "/_action/" + suffix
-            data_keys.append(f"{domain}/{name.lstrip('/')}/*/*")
-            # zid/nid/eid/kind/enclave/namespace/node, then mangled ROS name,
-            # type/hash/qos. Keep node tokens and all other entities untouched.
-            graph_keys.append(f"@ros2_lv/{domain}/" + "*/" * 7
-                              + name.replace("/", "%") + "/*/*/*")
+            names.add(action + "/_action/" + suffix)
+    if not names:
+        return None
+    data_keys, graph_keys = [], []
+    for name in sorted(names):
+        data_keys.append(f"{domain}/{name.lstrip('/')}/*/*")
+        graph_keys.append(f"@ros2_lv/{domain}/" + "*/" * 7
+                          + name.replace("/", "%") + "/*/*/*")
     return {
         "enabled": True,
         "default_permission": "allow",
@@ -80,6 +104,9 @@ def main():
     parser.add_argument("--domain", required=True)
     args = parser.parse_args()
     profile = json.loads(Path(args.profile).read_text())
+    if build_acl(profile, args.domain, "validation-only") is None:
+        print("ACL: empty profile; no generated restrictions", file=sys.stderr)
+        return
     interface = detect_interface(args.server)
     acl = build_acl(profile, args.domain, interface)
     print(f"ACL: SERVER={args.server}, interface={interface}, profile={args.profile}", file=sys.stderr)

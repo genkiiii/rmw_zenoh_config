@@ -20,7 +20,9 @@ if [[ -f /etc/zenoh/rmw_zenoh_config/deny-profile.json ]]; then
   acl_override=$(python3 /usr/local/lib/rmw_zenoh_config/generate-acl.py \
     --profile /etc/zenoh/rmw_zenoh_config/deny-profile.json \
     --server "$SERVER" --domain "$DOMAIN_ID")
-  export ZENOH_CONFIG_OVERRIDE="${ZENOH_CONFIG_OVERRIDE};${acl_override}"
+  if [[ -n "$acl_override" ]]; then
+    export ZENOH_CONFIG_OVERRIDE="${ZENOH_CONFIG_OVERRIDE};${acl_override}"
+  fi
 fi
 export RUST_LOG=zenoh=info
 if [[ "$ROLE" == central ]]; then
