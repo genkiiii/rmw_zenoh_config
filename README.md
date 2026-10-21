@@ -21,17 +21,25 @@ sudo apt install make git python3 iproute2 ros-humble-rmw-zenoh-cpp ros-humble-d
 通常ユーザーで実行する。`sudo make`は使用しない。必要な処理だけ内部でsudoを使う。
 
 **実行前に`<対象機械>`を、使用する`profiles/<機器名>.json`のファイル名（拡張子なし）へ置き換える。**
-例えば対象がmst110crなら`mst110cr`を指定する。以下の山括弧付き表記は説明用で、そのまま実行しない。
+山括弧は含めず、以下のプロファイル名を指定する。以下の山括弧付き表記は説明用で、そのまま実行しない。
+
+| 対象機械・プロファイル名 | ファイル |
+|---|---|
+| `d37pxi` | [profiles/d37pxi.json](profiles/d37pxi.json) |
+| `zx200` | [profiles/zx200.json](profiles/zx200.json) |
+| `mst110cr` | [profiles/mst110cr.json](profiles/mst110cr.json) |
+
+[profiles/template.json](profiles/template.json)は、新しい機器のプロファイルを作るためのひな形。対象機械の一覧には含めない。
 
 ```bash
 # 中央PC：機器指定なし
 make install ROLE=central
 
 # 車載PC：搭載する建機を指定
-make install ROLE=vehicle DEVICE='<対象機械>'
+make install ROLE=vehicle DEVICE="<対象機械>"
 
 # 制御PC：対象の建機を指定
-make install ROLE=control DEVICE='<対象機械>'
+make install ROLE=control DEVICE="<対象機械>"
 
 # 複数の建機を扱う制御PC
 make install ROLE=control DEVICES="<対象機械1> <対象機械2>"
@@ -44,7 +52,7 @@ centralではDEVICE/DEVICESを指定しない。
 RUN_USERは省略可能。省略時はコマンドを実行したユーザーでrouterを動かす。
 
 ```bash
-make install ROLE=vehicle DEVICE='<対象機械>' SERVER=192.168.1.70 DOMAIN_ID=35
+make install ROLE=vehicle DEVICE="<対象機械>" SERVER=192.168.1.70 DOMAIN_ID=35
 ```
 
 中央は0.0.0.0:7447で待受、ほかは127.0.0.1:7447で待受し中央へ接続する。
@@ -159,7 +167,7 @@ make update
 編集した配布プロファイルを適用する場合：
 
 ```bash
-make apply-profile DEVICE='<対象機械>'
+make apply-profile DEVICE="<対象機械>"
 # 複数機器
 make apply-profile DEVICES="<対象機械1> <対象機械2>"
 ```
@@ -275,8 +283,8 @@ RUN_USERはrouterを動かすLinuxユーザーを指定する。ROSの通信相�
 
 ```bash
 # bullでログインしている場合、次の2つは同じ
-make install ROLE=vehicle DEVICE='<対象機械>'
-make install ROLE=vehicle DEVICE='<対象機械>' RUN_USER=bull
+make install ROLE=vehicle DEVICE="<対象機械>"
+make install ROLE=vehicle DEVICE="<対象機械>" RUN_USER=bull
 ```
 
 インストールだけ管理者権限を使い、router自体は指定ユーザーで動作する。
@@ -284,7 +292,7 @@ systemdのUserは指定ユーザー、Groupはそのプライマリグループ�
 rootは指定不可。別ユーザーを指定する場合は、そのPC上に存在するユーザーを選ぶ。
 
 ```bash
-make install ROLE=control DEVICE='<対象機械>' RUN_USER=operator
+make install ROLE=control DEVICE="<対象機械>" RUN_USER=operator
 ```
 
 RUN_USERはrouterサービス用。ROSノードを同じユーザーで動かす必要はないが、各ノードでRMW・Domain ID・接続設定をそろえる。
