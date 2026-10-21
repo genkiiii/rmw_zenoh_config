@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stop endpoint routers when their central TCP endpoint becomes unavailable."""
+"""Check central reachability at startup and watch ACL interface changes."""
 import argparse
 import json
 import os
@@ -10,13 +10,18 @@ import sys
 import time
 
 
+def route_interface(server):
+    result = subprocess.run(["ip", "-j", "-4", "route", "get", server],
+                            check=True, capture_output=True, text=True, timeout=5)
+    routes = json.loads(result.stdout)
+    if len(routes) == 1 and routes[0].get("type") not in ("unreachable", "blackhole", "prohibit"):
+        return routes[0].get("dev")
+    return None
+
+
 def check_central(server, expected_interface=None):
-    if expected_interface:
-        result = subprocess.run(["ip", "-j", "-4", "route", "get", server],
-                                check=True, capture_output=True, text=True, timeout=5)
-        routes = json.loads(result.stdout)
-        if len(routes) != 1 or routes[0].get("dev") != expected_interface:
-            raise OSError("Route interface changed; ACL must be regenerated")
+    if expected_interface and route_interface(server) != expected_interface:
+        raise OSError("Route interface changed; ACL must be regenerated")
     with socket.create_connection((server, 7447), timeout=3):
         pass
 
@@ -67,22 +72,20 @@ def main():
 
     signal.signal(signal.SIGINT, handle_stop)
     signal.signal(signal.SIGTERM, handle_stop)
-    failures = 0
     next_probe = time.monotonic() + 10
     try:
         while child.poll() is None:
             if stopping:
                 return 0
-            if time.monotonic() >= next_probe:
+            if expected_interface and time.monotonic() >= next_probe:
                 try:
-                    check_central(args.server, expected_interface)
-                    failures = 0
+                    current_interface = route_interface(args.server)
                 except (OSError, ValueError, subprocess.SubprocessError) as error:
-                    failures += 1
-                    print(f"Central check failed ({failures}/3): {error}", file=sys.stderr)
-                    # An interface change must never leave a stale ACL active.
-                    if "Route interface changed" in str(error) or failures >= 3:
-                        print("Stopping router; systemd will retry", file=sys.stderr)
+                    # A temporarily absent route is not a reason to stop local ROS.
+                    print(f"ACL route check unavailable; keeping router running: {error}", file=sys.stderr)
+                else:
+                    if current_interface and current_interface != expected_interface:
+                        print("ACL interface changed; restarting router to regenerate ACL", file=sys.stderr)
                         return 1
                 next_probe = time.monotonic() + 10
             time.sleep(0.2)

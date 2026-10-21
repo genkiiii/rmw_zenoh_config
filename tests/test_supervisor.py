@@ -18,21 +18,32 @@ class SupervisorTests(unittest.TestCase):
             self.assertEqual(supervisor.main(), 1)
             start.assert_not_called()
 
-    def test_three_failed_checks_stop_running_router(self):
+    def run_watcher(self, route_results):
         child = MagicMock(pid=12345)
-        child.poll.return_value = None
+        child.poll.side_effect = [None] * len(route_results) + [0, 0]
+        child.returncode = 0
         ticks = iter(range(0, 1000, 11))
+        override = 'mode="router";access_control={"subjects":[{"interfaces":["enp5s0"]}]}'
         with patch.object(sys, 'argv', ['supervisor', '--server', '192.168.1.70', '--', 'router']), \
-             patch.dict(supervisor.os.environ, {'ZENOH_CONFIG_OVERRIDE': ''}), \
-             patch.object(supervisor, 'check_central', side_effect=[None, OSError('timeout'), OSError('timeout'), OSError('timeout')]), \
+             patch.dict(supervisor.os.environ, {'ZENOH_CONFIG_OVERRIDE': override}), \
+             patch.object(supervisor, 'check_central') as probe, \
+             patch.object(supervisor, 'route_interface', side_effect=route_results), \
              patch.object(supervisor.subprocess, 'Popen', return_value=child), \
              patch.object(supervisor.signal, 'signal'), \
              patch.object(supervisor.time, 'monotonic', side_effect=lambda: next(ticks)), \
-             patch.object(supervisor.time, 'sleep'), \
-             patch.object(supervisor.os, 'killpg') as kill:
-            self.assertEqual(supervisor.main(), 1)
-            kill.assert_called_once_with(12345, supervisor.signal.SIGINT)
-            child.wait.assert_called_once_with(timeout=8)
+             patch.object(supervisor.time, 'sleep'):
+            result = supervisor.main()
+            probe.assert_called_once_with('192.168.1.70', 'enp5s0')
+            return result
+
+    def test_missing_routes_do_not_stop_router(self):
+        self.assertEqual(self.run_watcher([OSError('no route')] * 4), 0)
+
+    def test_unchanged_interface_does_not_trigger_tcp_probe(self):
+        self.assertEqual(self.run_watcher(['enp5s0'] * 4), 0)
+
+    def test_changed_interface_requests_restart(self):
+        self.assertEqual(self.run_watcher(['wlan0']), 1)
 
     def test_changed_interface_rejected_before_tcp_probe(self):
         route = subprocess.CompletedProcess([], 0, '[{"dev":"wlan0"}]')
