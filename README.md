@@ -102,12 +102,12 @@ uninstall後に再導入する場合は保持された設定を使う `make upda
 
 ```json
 {
-  "allow": {
+  "deny": {
     "topics": [],
     "services": [],
     "actions": []
   },
-  "deny": {
+  "allow": {
     "topics": [],
     "services": [],
     "actions": []
@@ -115,6 +115,8 @@ uninstall後に再導入する場合は保持された設定を使う `make upda
 }
 ```
 
+- 各配布JSONの`_comment`は説明用で、通信ルールとしては評価しない。
+- 優先順位は明示的deny > 明示的allow > 既定値。deny → allowの表示順は読みやすさのためであり、並び順で判定は変わらない。
 - topics：ROS Topicの絶対名。
 - services：ROS Serviceの絶対名。
 - actions：ROS Actionの絶対名。関連する5つの通信と探索情報もツール側で扱う。
@@ -127,12 +129,12 @@ uninstall後に再導入する場合は保持された設定を使う `make upda
 
 ```json
 {
-  "allow": {"topics": [], "services": [], "actions": []},
   "deny": {
     "topics": [],
     "services": [],
     "actions": ["/d37pxi/navigate_to_pose"]
-  }
+  },
+  "allow": {"topics": [], "services": [], "actions": []}
 }
 ```
 

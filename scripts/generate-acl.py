@@ -38,13 +38,19 @@ def detect_interface(server):
 def normalize_profile(profile):
     if not isinstance(profile, dict):
         raise ValueError("Profile must be an object")
+    if "_comment" in profile:
+        comment = profile["_comment"]
+        if not (isinstance(comment, str) or
+                isinstance(comment, list) and all(isinstance(line, str) for line in comment)):
+            raise ValueError("_comment must be a string or list of strings")
+        profile = {key: value for key, value in profile.items() if key != "_comment"}
     # Preserve compatibility with already installed action-only profiles.
     if set(profile) == {"deny_actions"}:
         profile = {"deny": {"actions": profile["deny_actions"]}}
     if not profile or set(profile) - {"allow", "deny"}:
         raise ValueError("Profile must contain allow/deny sections")
     normalized = {}
-    for mode in ("allow", "deny"):
+    for mode in ("deny", "allow"):
         section = profile.get(mode, {})
         if not isinstance(section, dict) or set(section) - {"topics", "services", "actions"}:
             raise ValueError("Sections support only topics/services/actions")

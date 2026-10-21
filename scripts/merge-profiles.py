@@ -19,7 +19,7 @@ def merge_profiles(directory, device="", devices=""):
     if not names or any(not re.fullmatch(r"[A-Za-z0-9_-]+", name) for name in names):
         raise ValueError("DEVICE or DEVICES is required; use profile names without paths")
     result = {mode: {kind: [] for kind in ("topics", "services", "actions")}
-              for mode in ("allow", "deny")}
+              for mode in ("deny", "allow")}
     for name in names:
         profile = acl.normalize_profile(json.loads((Path(directory) / (name + ".json")).read_text()))
         for mode in result:

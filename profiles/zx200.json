@@ -1,10 +1,16 @@
 {
-  "allow": {
+  "_comment": [
+    "優先順位：明示的なdeny > 明示的なallow > 既定値。JSON内の並び順によって優先順位が変わるわけではありません。",
+    "現在のツールはdenyのみ対応しています。allowは将来用の欄です。空のままにしてください。値を入れるとエラーになります。",
+    "topics/services/actionsにはROSの絶対名を指定します。空配列は制限追加なしです。Actionは関連するService・Topic・探索情報も対象になります。",
+    "denyは中央向けNICで適用され、localhost内の通信は維持します。"
+  ],
+  "deny": {
     "topics": [],
     "services": [],
     "actions": []
   },
-  "deny": {
+  "allow": {
     "topics": [],
     "services": [],
     "actions": []
