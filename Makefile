@@ -4,13 +4,11 @@ RUN_USER ?= $(shell id -un)
 DEVICES ?=
 DEVICE ?=
 
-.PHONY: install update uninstall purge status logs check apply-profile
+.PHONY: install update uninstall purge status logs check
 install:
 	sudo bash scripts/manage.sh install "$(ROLE)" "$(RUN_USER)" "$(DEVICE)" "$(DEVICES)"
 update:
-	sudo bash scripts/manage.sh update
-apply-profile:
-	sudo bash scripts/manage.sh apply-profile "$(DEVICE)" "$(DEVICES)"
+	sudo bash scripts/manage.sh update "$(DEVICE)" "$(DEVICES)"
 uninstall:
 	sudo bash scripts/manage.sh uninstall
 purge:

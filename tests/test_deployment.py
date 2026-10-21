@@ -25,7 +25,7 @@ class DeploymentTests(unittest.TestCase):
             env.write_text('SERVER="192.168.1.71" # comment\nROS_DOMAIN_ID=13\n')
             self.assertEqual(deployment.read_deployment(env)['ROS_DOMAIN_ID'], '13')
 
-    def test_update_env_and_apply_profile_are_independent(self):
+    def test_update_reapplies_saved_profile_and_preserves_install_identity(self):
         # Run only the actual pre-service portion in an isolated tree; never
         # touch /etc, /usr/local or systemd during the test.
         with tempfile.TemporaryDirectory() as directory:
@@ -57,22 +57,36 @@ class DeploymentTests(unittest.TestCase):
             self.assertNotEqual(run('update').returncode, 0)
             self.assertEqual(runtime.read_text(), before)
             local.write_text('SERVER=192.168.1.71\nROS_DOMAIN_ID=13\n')
-            self.assertEqual(run('update').returncode, 0)
+            # Legacy installs cannot infer names from the previously merged JSON.
+            self.assertNotEqual(run('update').returncode, 0)
+            self.assertEqual(runtime.read_text(), before)
+            source_profile = repo / 'profiles/test.json'
+            source_profile.write_text('{"deny":{"topics":["/robot/state"]}}')
+            self.assertEqual(run('update', 'test').returncode, 0)
+            self.assertEqual((installed / 'selected-profiles').read_text().strip(), 'test')
             self.assertIn('RUN_USER=original_user', runtime.read_text())
+            self.assertIn('ROLE=vehicle', runtime.read_text())
             self.assertIn('ROS_DOMAIN_ID=13', runtime.read_text())
             self.assertIn('SERVER=192.168.1.71', runtime.read_text())
-            self.assertIn('ROLE=vehicle', runtime.read_text())
-            self.assertEqual((installed / 'deployment.env.bak').read_text(), before)
-            self.assertEqual(profile.read_text(), '{"deny_actions":["/original/action"]}\n')
-            self.assertEqual(router.read_text(), 'original router')
-            # apply-profile uses installed env and leaves local changes pending.
-            applied_env = runtime.read_text()
-            local.write_text('SERVER=192.168.1.99\nROS_DOMAIN_ID=99\n')
-            (repo / 'profiles/test.json').write_text('{"deny":{"topics":["/robot/state"]}}')
-            self.assertEqual(run('apply-profile', 'test').returncode, 0)
-            self.assertEqual(runtime.read_text(), applied_env)
             self.assertEqual(json.loads(profile.read_text())['deny']['topics'], ['/robot/state'])
-            # Invalid local env cannot overwrite a good deployment.
-            local.write_text('ROLE=bad\nSERVER=192.168.1.70\nROS_DOMAIN_ID=35\n')
+            self.assertEqual(router.read_text(), 'original router')
+            # No DEVICE needed again; both local env and selected JSON are reapplied.
+            local.write_text('SERVER=192.168.1.99\nROS_DOMAIN_ID=99\n')
+            source_profile.write_text('{"deny":{"services":["/robot/reset"]}}')
+            self.assertEqual(run('update').returncode, 0)
+            self.assertIn('SERVER=192.168.1.99', runtime.read_text())
+            self.assertIn('ROS_DOMAIN_ID=99', runtime.read_text())
+            self.assertIn('RUN_USER=original_user', runtime.read_text())
+            self.assertIn('ROLE=vehicle', runtime.read_text())
+            self.assertEqual(json.loads(profile.read_text())['deny']['services'], ['/robot/reset'])
+            applied_env, applied_profile = runtime.read_text(), profile.read_text()
+            # Invalid selection fails before either installed file is changed.
+            local.write_text('SERVER=192.168.1.88\nROS_DOMAIN_ID=88\n')
+            self.assertNotEqual(run('update', 'unknown').returncode, 0)
+            self.assertEqual(runtime.read_text(), applied_env)
+            self.assertEqual(profile.read_text(), applied_profile)
+            source_profile.write_text('{"invalid":[]}')
             self.assertNotEqual(run('update').returncode, 0)
             self.assertEqual(runtime.read_text(), applied_env)
+            self.assertEqual(profile.read_text(), applied_profile)
+            self.assertNotEqual(run('apply-profile', 'test').returncode, 0)

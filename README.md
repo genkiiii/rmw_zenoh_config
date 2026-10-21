@@ -51,6 +51,7 @@ install/updateで値を検証して配置し、不正・不足の場合は配置
 | `d37pxi` | [profiles/d37pxi.json](profiles/d37pxi.json) |
 | `zx200` | [profiles/zx200.json](profiles/zx200.json) |
 | `mst110cr` | [profiles/mst110cr.json](profiles/mst110cr.json) |
+| `control`（制御PC用） | [profiles/control.json](profiles/control.json) |
 
 [profiles/template.json](profiles/template.json)は、新しい機器のプロファイルを作るためのひな形。対象機械の一覧には含めない。
 
@@ -61,14 +62,12 @@ make install ROLE=central
 # 車載PC：搭載する建機を指定
 make install ROLE=vehicle DEVICE="<対象機械>"
 
-# 制御PC：対象の建機を指定
-make install ROLE=control DEVICE="<対象機械>"
-
-# 複数の建機を扱う制御PC
-make install ROLE=control DEVICE="<対象機械1> <対象機械2>"
+# 制御PC：制御PC専用プロファイルを指定
+make install ROLE=control DEVICE="control"
 ```
 
-vehicle/controlはDEVICEが必須。1機器でも複数機器でも同じ引数を使い、複数の場合はダブルクォート内にスペース区切りで記載する。
+vehicle/controlはDEVICEが必須。車載PCは自機のプロファイル、制御PCはcontrolプロファイルを選ぶ。選択は配置先のselected-profilesに記録する。
+従来の複数プロファイル指定も利用可能。DEVICEにダブルクォート付きスペース区切りで指定する。
 旧引数DEVICESも互換性のため受け付けるが、DEVICEとの同時指定はエラー。
 centralではDEVICE/DEVICESを指定しない。
 RUN_USERは省略可能。省略時はコマンドを実行したユーザーでrouterを動かす。
@@ -101,18 +100,19 @@ ROSノードのsystemd自動起動は本リポジトリの対象外。
 そのサービスではROSノード起動前に上記ros-env.shとワークスペースを明示的にsourceする。
 必要に応じてUnitに `Requires=rmw-zenoh-router.service` と `After=rmw-zenoh-router.service` を指定する。
 
-## 環境・コードの更新
+## 設定・コードの更新
 
-ローカルの `config/deployment.env` を編集した後、または作業フォルダのスクリプトを変更した後に実行する。
+ローカルの `config/deployment.env`、選択済みの `profiles/*.json`、またはスクリプトを編集した後に実行する。
 
 ```bash
 make update
 ```
 
-- envのSERVER・ROS_DOMAIN_IDと、スクリプト・サービスを反映しrouterを再起動する。
+- envのSERVER・ROS_DOMAIN_ID、記録済みプロファイル、スクリプト・サービスをまとめて反映しrouterを再起動する。
 - ROLEとRUN_USERはinstall時の値を維持する。別ユーザーがupdateしても実行ユーザーは変わらない。
-- router.json5と適用済みプロファイルは保持する。profiles/*.jsonの編集反映は別のmake apply-profileで行う。
-- ROS_DOMAIN_IDが変わると、保持しているプロファイルも新Domainのキーで実行時に再生成される。
+- router.json5とプロファイルの選択は保持する。プロファイルの中身は作業フォルダのJSONで更新する。
+- 編集元はローカルリポジトリ。配置先のenvやdeny-profile.jsonを直接編集しても、updateで上書きされる。
+- ROS_DOMAIN_IDが変わると、プロファイルのACLも新Domainのキーで実行時に再生成される。
 - ROSパッケージ更新は行わない。
 
 GitHubからの取得は必須ではない。各PCでローカルに編集した内容をそのまま反映できる。
@@ -129,11 +129,27 @@ ros2 daemon stop
 古いバージョンから移行する場合は、config/deployment.envへ従来のSERVER・DOMAIN_IDの値を写す（DOMAIN_IDはROS_DOMAIN_IDへ名称変更）。以前ローカルenvにROLEを記載していた場合は削除する。make updateでは配置済みのROLEとRUN_USERを維持する。
 ROLEを変える場合は設定をバックアップし、make purge後に新しいROLEでinstallする。
 
+### 既存PCで最初の1回・プロファイルの選び直し
+
+旧バージョンは選択名を記録していないため、既存PCは最初の1回だけ指定する。
+
+```bash
+# 車載PC
+make update DEVICE="<対象機械>"
+# 制御PC
+make update DEVICE="control"
+```
+
+以後はmake updateだけで同じプロファイルを再適用する。選び直す場合も上記のDEVICE指定を使う。
+記録がないのにDEVICEを省略した場合や、不明なプロファイル・不正なJSONを指定した場合は、既存設定を上書きせずエラーにする。
+中央PCはプロファイルを使わないため、make updateだけでよい。
+
+
 | 変更する内容 | 編集元 | 反映コマンド |
 |---|---|---|
 | SERVER・ROS_DOMAIN_ID | config/deployment.env | make update |
 | スクリプト・サービス | scripts/・systemd/ | make update |
-| allow・denyリスト | profiles/*.json | make apply-profile DEVICE="<対象機械>" |
+| allow・denyリスト | 選択済みのprofiles/*.json | make update |
 
 ## routerサービスの操作
 
@@ -169,10 +185,7 @@ sudo systemctl restart rmw-zenoh-router.service
 
 ローカルリポジトリで編集した設定を反映する場合は、再起動だけではなく、次を使う。
 
-- `config/deployment.env`の変更：`make update`
-- `profiles/*.json`の変更：`make apply-profile DEVICE="<対象機械>"`
-
-どちらも設定反映後にrouterを再起動する。
+`config/deployment.env`・選択済みの`profiles/*.json`の変更は、どちらも`make update`で反映しrouterを再起動する。
 
 ### ログ確認
 
@@ -198,7 +211,7 @@ sudo systemctl disable --now rmw-zenoh-router.service
 sudo systemctl enable --now rmw-zenoh-router.service
 ```
 
-`make install`・`make update`・`make apply-profile`を実行すると、自動起動も再び有効になる。
+`make install`・`make update`を実行すると、自動起動も再び有効になる。
 
 ## 削除
 
@@ -211,13 +224,14 @@ make purge
 
 削除時は.bashrcのsource行も手動で削除する。ROSパッケージ、旧bridge、ほかの/etc/zenoh配下のファイルには触れない。
 ローカルリポジトリのconfig/deployment.envやprofilesは削除しない。
-uninstall後の再導入はmake updateで行える。ローカルenvを反映し、配置済みプロファイル・ROLE・RUN_USERを保持する。
+uninstall後の再導入はmake updateで行える。ローカルenv・記録済みプロファイルを再反映し、ROLE・RUN_USERを保持する。
 
 ## 機器別allow・denyリスト
 
 `profiles/<機器名>.json` に機器別の通信制限を記載する。
-`d37pxi.json`・`zx200.json`・`mst110cr.json`・新規機器用の`template.json`を用意している。
+車載用の`d37pxi.json`・`zx200.json`・`mst110cr.json`、制御PC用の`control.json`、新規プロファイル用の`template.json`を用意している。
 **配布プロファイルはすべて空であり、初期状態ではこのツールによる通信制限を追加しない。**
+車載側と制御側は別ファイルで独立して管理する。control.jsonには制御PCで必要な各建機の通信をまとめる。同じルールを両側へ自動複製しない。PC間の通信は両端で許可されている必要がある。
 
 ```json
 {
@@ -287,23 +301,27 @@ localhost内の通信は維持する。
 機器プロファイルは通信制限を選ぶ設定。接続先はSERVER、ROS通信グループはROS_DOMAIN_IDで決まる。
 複数機器のプロファイルは合算し、重複を除去する。**いずれかの機器にallowがあれば、中央との通信は合算後のallow一覧に限定される。他の機器についても必要な通信をallowに記載すること。**名前の間違いや不正な形式はエラーにする。
 
-### プロファイルの適用
+### プロファイルの編集・反映
 
-ローカルリポジトリの `profiles/<機器名>.json` を編集し、次の操作で反映する。envやコードの更新とは別操作で、git pullやmake updateは不要。
+install時に選んだローカルのJSONを編集する。
 
+- 車載PC：profiles/d37pxi.jsonなど、自機のプロファイル。
+- 制御PC：profiles/control.json。
 
 ```bash
-make apply-profile DEVICE="<対象機械>"
-# 複数機器
-make apply-profile DEVICE="<対象機械1> <対象機械2>"
+make update
 ```
 
-指定した全プロファイルを合算し、適用中のプロファイル一式を置き換える。維持したい機器もすべて指定する。
-適用前のプロファイルはdeny-profile.json.bakへ保存する（前回バックアップは上書き）。
-**空プロファイルの再適用は、このツールで設定していたdeny制限の解除になる。**
-適用時はrouterを再起動するため、通信が一時中断する。
+機器名の再指定やGitHubからの取得は毎回必要ない。記録済みプロファイルを読み直し、env・コードと一緒に反映してrouterを再起動する。
+従来の複数プロファイルを使っているPCも、記録済みの全プロファイルを読み直す。
+プロファイルを選び直す場合だけmake update DEVICE="<プロファイル名>"を使う。指定した一式で選択を置き換えるため、複数を維持する場合はすべて指定する。
 
-適用先は `/etc/zenoh/rmw_zenoh_config/deny-profile.json`。旧形式のdeny_actionsも既存PCとの互換性のため読み込める。
+適用前のプロファイルはdeny-profile.json.bakへ保存する（前回バックアップは上書き）。
+**空プロファイルの反映は、このツールで設定していたallow・deny制限の解除になる。**
+updateはrouterを再起動するため、通信が一時中断する。
+適用先は `/etc/zenoh/rmw_zenoh_config/deny-profile.json`。直接編集せず、ローカルのprofiles内を編集する。
+旧形式のdeny_actionsも読み込める。
+
 新規機器はtemplate.jsonをコピーして作成する。
 
 ```bash

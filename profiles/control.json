@@ -1,0 +1,18 @@
+{
+  "_comment": [
+    "優先順位：明示的なdeny > 明示的なallow > 既定値。JSON内の並び順は判定に影響しません。",
+    "allowが全て空なら、中央との通信は基本許可でdenyだけ遮断します。allowに1件でも記載すると、合算したallow対象だけを中央との通信で許可します（deny優先）。",
+    "topics/services/actionsにはROSの絶対名を指定します。Actionは関連するService・Topic・探索情報も対象になります。",
+    "localhost内の通信は維持します。複数プロファイルは合算され、1つでもallowがあれば一覧にない他の通信も中央との間で遮断されます。"
+  ],
+  "deny": {
+    "topics": [],
+    "services": [],
+    "actions": []
+  },
+  "allow": {
+    "topics": [],
+    "services": [],
+    "actions": []
+  }
+}

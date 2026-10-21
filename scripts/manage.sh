@@ -24,18 +24,25 @@ write_runtime_env() {
 build_profiles() {
   python3 scripts/merge-profiles.py --directory profiles --device "${1:-}" --devices "${2:-}"
 }
-apply_profile() {
+prepare_profile() {
   [[ "$ROLE" != central ]] || { echo 'Central router does not accept device profiles'; exit 1; }
-  local merged
-  merged=$(build_profiles "${1:-}" "${2:-}")
+  # Validate the whole selection before modifying installed files.
+  merged_profile=$(build_profiles "${1:-}" "${2:-}")
+  selected_profiles=${1:-${2:-}}
+}
+write_profile() {
   if [[ -f "$config/deny-profile.json" ]]; then
     cp -a "$config/deny-profile.json" "$config/deny-profile.json.bak"
   fi
   local temporary
   temporary=$(mktemp "$config/.profile.XXXXXX")
-  printf '%s\n' "$merged" > "$temporary"
+  printf '%s\n' "$merged_profile" > "$temporary"
   chmod 0644 "$temporary"
   mv "$temporary" "$config/deny-profile.json"
+  temporary=$(mktemp "$config/.selection.XXXXXX")
+  printf '%s\n' "$selected_profiles" > "$temporary"
+  chmod 0644 "$temporary"
+  mv "$temporary" "$config/selected-profiles"
 }
 case "${1:-}" in
 install)
@@ -45,7 +52,7 @@ install)
   if [[ "$ROLE" == central ]]; then
     [[ -z "$device$devices" ]] || { echo 'central does not accept DEVICE/DEVICES'; exit 1; }
   else
-    build_profiles "$device" "$devices" >/dev/null
+    prepare_profile "$device" "$devices"
   fi
   if [[ ! "$RUN_USER" =~ ^[a-z_][a-z0-9_-]*[$]?$ ]] || ! id "$RUN_USER" >/dev/null 2>&1; then
     echo 'Specify an existing Linux RUN_USER' >&2
@@ -60,12 +67,7 @@ install)
   install -d -m 0755 "$config"
   install -m 0644 "$default" "$config/router.json5"
   write_runtime_env
-  if [[ "$ROLE" != central ]]; then apply_profile "$device" "$devices"; fi
-  ;;
-apply-profile)
-  [[ -f "$config/deployment.env" ]] || { echo "Run make install first"; exit 1; }
-  source "$config/deployment.env"
-  apply_profile "${2:-}" "${3:-}"
+  if [[ "$ROLE" != central ]]; then write_profile; fi
   ;;
 update)
   [[ -f "$config/deployment.env" ]] || { echo 'Not installed'; exit 1; }
@@ -74,8 +76,19 @@ update)
   read_local_env
   RUN_USER=$installed_user
   getent passwd "$RUN_USER" >/dev/null
+  if [[ "$ROLE" == central ]]; then
+    [[ -z "${2:-}${3:-}" ]] || { echo 'central does not accept DEVICE/DEVICES'; exit 1; }
+  elif [[ -n "${2:-}${3:-}" ]]; then
+    prepare_profile "${2:-}" "${3:-}"
+  elif [[ -s "$config/selected-profiles" ]]; then
+    prepare_profile "$(cat "$config/selected-profiles")" ""
+  else
+    echo 'No saved profile selection. Run make update DEVICE="<profile>" once (control PC: DEVICE="control").' >&2
+    exit 1
+  fi
   write_runtime_env
-  # Applied profile and router.json5 are deliberately preserved on update.
+  if [[ "$ROLE" != central ]]; then write_profile; fi
+  # router.json5 is preserved; env, selected profile and code are reapplied.
   ;;
 uninstall|purge)
   systemctl disable --now "$service" 2>/dev/null || true
@@ -87,7 +100,7 @@ uninstall|purge)
   echo 'Service removed. Remove the source line from your .bashrc if no longer needed.'
   exit 0
   ;;
-*) echo 'Usage: manage.sh install|update|apply-profile|uninstall|purge'; exit 1 ;;
+*) echo 'Usage: manage.sh install|update|uninstall|purge'; exit 1 ;;
 esac
 source "$config/deployment.env"
 getent passwd "$RUN_USER" >/dev/null
