@@ -14,18 +14,16 @@ def read_deployment(path):
             continue
         key, separator, text = line.partition("=")
         key = key.strip()
-        if not separator or key not in ("ROLE", "SERVER", "ROS_DOMAIN_ID"):
-            raise ValueError(f"Line {number}: only ROLE/SERVER/ROS_DOMAIN_ID are supported")
+        if not separator or key not in ("SERVER", "ROS_DOMAIN_ID"):
+            raise ValueError(f"Line {number}: only SERVER/ROS_DOMAIN_ID are supported")
         if key in values:
             raise ValueError(f"Duplicate key: {key}")
         words = shlex.split(text, comments=True)
         if len(words) != 1:
             raise ValueError(f"Line {number}: expected one value")
         values[key] = words[0]
-    if set(values) != {"ROLE", "SERVER", "ROS_DOMAIN_ID"}:
-        raise ValueError("ROLE, SERVER and ROS_DOMAIN_ID are all required")
-    if values["ROLE"] not in ("central", "vehicle", "control"):
-        raise ValueError("ROLE must be central, vehicle or control")
+    if set(values) != {"SERVER", "ROS_DOMAIN_ID"}:
+        raise ValueError("SERVER and ROS_DOMAIN_ID are both required")
     values["SERVER"] = str(ipaddress.IPv4Address(values["SERVER"]))
     domain = values["ROS_DOMAIN_ID"]
     if not domain.isascii() or not domain.isdecimal() or not 0 <= int(domain) <= 232:

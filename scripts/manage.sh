@@ -5,7 +5,7 @@ cd "$(dirname "$0")/.."
 config=/etc/zenoh/rmw_zenoh_config
 service=rmw-zenoh-router.service
 read_local_env() {
-  [[ -f config/deployment.env ]] || { echo 'Create config/deployment.env from config/deployment.env.example first.' >&2; exit 1; }
+  [[ -f config/deployment.env ]] || { echo 'Missing config/deployment.env. Restore the distributed file and edit SERVER/ROS_DOMAIN_ID.' >&2; exit 1; }
   local validated
   validated=$(python3 scripts/read-deployment.py config/deployment.env)
   # Only validated, shell-quoted assignments from our parser are evaluated.
@@ -39,7 +39,8 @@ apply_profile() {
 }
 case "${1:-}" in
 install)
-  RUN_USER=${2:-}; device=${3:-}; devices=${4:-}
+  ROLE=${2:-}; RUN_USER=${3:-}; device=${4:-}; devices=${5:-}
+  [[ "$ROLE" =~ ^(central|vehicle|control)$ ]] || { echo 'ROLE=central|vehicle|control is required at install' >&2; exit 1; }
   read_local_env
   if [[ "$ROLE" == central ]]; then
     [[ -z "$device$devices" ]] || { echo 'central does not accept DEVICE/DEVICES'; exit 1; }

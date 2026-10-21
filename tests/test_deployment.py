@@ -15,14 +15,14 @@ class DeploymentTests(unittest.TestCase):
     def test_validation_rejects_unknown_missing_and_executable_values(self):
         with tempfile.TemporaryDirectory() as directory:
             env = Path(directory) / 'test.env'
-            for text in ('ROLE=vehicle\nSERVER=192.168.1.70\n',
-                         'ROLE=vehicle\nSERVER=192.168.1.70\nROS_DOMAIN_ID=233\n',
-                         'ROLE=vehicle\nSERVER=$(touch sentinel)\nROS_DOMAIN_ID=35\n',
-                         'ROLE=vehicle\nSERVER=192.168.1.70\nROS_DOMAIN_ID=35\nRUN_USER=bad\n'):
+            for text in ('SERVER=192.168.1.70\n',
+                         'SERVER=192.168.1.70\nROS_DOMAIN_ID=233\n',
+                         'SERVER=$(touch sentinel)\nROS_DOMAIN_ID=35\n',
+                         'SERVER=192.168.1.70\nROS_DOMAIN_ID=35\nRUN_USER=bad\n'):
                 env.write_text(text)
                 with self.assertRaises(ValueError):
                     deployment.read_deployment(env)
-            env.write_text('ROLE=control\nSERVER="192.168.1.71" # comment\nROS_DOMAIN_ID=13\n')
+            env.write_text('SERVER="192.168.1.71" # comment\nROS_DOMAIN_ID=13\n')
             self.assertEqual(deployment.read_deployment(env)['ROS_DOMAIN_ID'], '13')
 
     def test_update_env_and_apply_profile_are_independent(self):
@@ -56,18 +56,18 @@ class DeploymentTests(unittest.TestCase):
             before = runtime.read_text()
             self.assertNotEqual(run('update').returncode, 0)
             self.assertEqual(runtime.read_text(), before)
-            local.write_text('ROLE=control\nSERVER=192.168.1.71\nROS_DOMAIN_ID=13\n')
+            local.write_text('SERVER=192.168.1.71\nROS_DOMAIN_ID=13\n')
             self.assertEqual(run('update').returncode, 0)
             self.assertIn('RUN_USER=original_user', runtime.read_text())
             self.assertIn('ROS_DOMAIN_ID=13', runtime.read_text())
             self.assertIn('SERVER=192.168.1.71', runtime.read_text())
-            self.assertIn('ROLE=control', runtime.read_text())
+            self.assertIn('ROLE=vehicle', runtime.read_text())
             self.assertEqual((installed / 'deployment.env.bak').read_text(), before)
             self.assertEqual(profile.read_text(), '{"deny_actions":["/original/action"]}\n')
             self.assertEqual(router.read_text(), 'original router')
             # apply-profile uses installed env and leaves local changes pending.
             applied_env = runtime.read_text()
-            local.write_text('ROLE=vehicle\nSERVER=192.168.1.99\nROS_DOMAIN_ID=99\n')
+            local.write_text('SERVER=192.168.1.99\nROS_DOMAIN_ID=99\n')
             (repo / 'profiles/test.json').write_text('{"deny":{"topics":["/robot/state"]}}')
             self.assertEqual(run('apply-profile', 'test').returncode, 0)
             self.assertEqual(runtime.read_text(), applied_env)

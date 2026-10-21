@@ -18,30 +18,23 @@ sudo apt install make git python3 iproute2 ros-humble-rmw-zenoh-cpp ros-humble-d
 
 ## 環境設定（初回・変更時）
 
-初回はリポジトリ内でひな形をコピーする。導入済みPCも、この方式へ移行する初回だけ作成する。
-既に存在する場合はコピーで上書きせず、そのファイルを編集する。
-
-```bash
-cp config/deployment.env.example config/deployment.env
-```
+`config/deployment.env` は初めから配置されている。コピーは不要。
 
 `config/deployment.env` を各PCの環境に合わせて編集する。
 
 ```bash
-ROLE=vehicle
 SERVER=192.168.1.70
 ROS_DOMAIN_ID=35
 ```
 
 | 項目 | 内容 |
 |---|---|
-| ROLE | 中央PCはcentral、車載PCはvehicle、制御PCはcontrol |
 | SERVER | 中央PCのIPv4アドレス。中央PC自身にも記載する |
 | ROS_DOMAIN_ID | ROSノードの通信グループ。同じグループのPCで統一する |
 
-3項目すべて必須。RUN_USERや旧名DOMAIN_IDはこのファイルに記載しない。
+2項目とも必須。ROLE・RUN_USER・旧名DOMAIN_IDはこのファイルに記載しない。
 ROS_DOMAIN_IDは0〜232の整数。シェルコマンド・変数展開は使わず、値を直接記載する。
-`config/deployment.env` はPC固有のためGit管理対象外。ひな形だけGit管理する。
+`config/deployment.env` は初期値入りでGit管理する。各PCで編集した値を誤ってcommit・pushしないこと。GitHub側で同じファイルが変更されると、取得時に競合する場合がある。
 
 **このローカルファイルが編集元。`/etc/zenoh/rmw_zenoh_config/deployment.env` は自動配置先なので、直接編集しない。**
 install/updateで値を検証して配置し、不正・不足の場合は配置先を上書きせずエラーにする。
@@ -62,17 +55,17 @@ install/updateで値を検証して配置し、不正・不足の場合は配置
 [profiles/template.json](profiles/template.json)は、新しい機器のプロファイルを作るためのひな形。対象機械の一覧には含めない。
 
 ```bash
-# 中央PC：envでROLE=centralにして、機器指定なし
-make install
+# 中央PC：機器指定なし
+make install ROLE=central
 
-# 車載PC：envでROLE=vehicleにして、搭載する建機を指定
-make install DEVICE="<対象機械>"
+# 車載PC：搭載する建機を指定
+make install ROLE=vehicle DEVICE="<対象機械>"
 
-# 制御PC：envでROLE=controlにして、対象の建機を指定
-make install DEVICE="<対象機械>"
+# 制御PC：対象の建機を指定
+make install ROLE=control DEVICE="<対象機械>"
 
-# 複数の建機を扱う制御PC（ROLE=control）
-make install DEVICES="<対象機械1> <対象機械2>"
+# 複数の建機を扱う制御PC
+make install ROLE=control DEVICES="<対象機械1> <対象機械2>"
 ```
 
 vehicle/controlはDEVICEまたはDEVICESが必須。両方の同時指定はエラー。
@@ -83,7 +76,7 @@ RUN_USERは省略可能。省略時はコマンドを実行したユーザーで
 中央は0.0.0.0:7447で待受、ほかは127.0.0.1:7447で待受し中央へ接続する。
 multicast無効、gossip有効、multihop無効。
 初回導入時にインストール済みROSパッケージの標準router設定をコピーする。
-役割・接続先・ROS_DOMAIN_IDはローカルenvから配置する。RUN_USERはinstall時に決定し、配置先に記録する。
+SERVER・ROS_DOMAIN_IDはローカルenvから配置する。ROLEとRUN_USERはinstall時に決定し、配置先に記録する。
 
 ## ROSノードの環境
 
@@ -101,7 +94,7 @@ printenv RMW_IMPLEMENTATION ROS_DOMAIN_ID
 ros2 daemon stop
 ```
 
-期待値：rmw_zenoh_cpp / envで指定したROS_DOMAIN_ID（ひな形では35）。既存ROSノードは再起動する。
+期待値：rmw_zenoh_cpp / envで指定したROS_DOMAIN_ID（初期値は35）。既存ROSノードは再起動する。
 ローカルrouter未起動時はROSノードが起動待ちになる。
 ROSノードのsystemd自動起動は本リポジトリの対象外。
 そのサービスではROSノード起動前に上記ros-env.shとワークスペースを明示的にsourceする。
@@ -115,8 +108,8 @@ ROSノードのsystemd自動起動は本リポジトリの対象外。
 make update
 ```
 
-- envのROLE・SERVER・ROS_DOMAIN_IDと、スクリプト・サービスを反映しrouterを再起動する。
-- RUN_USERはinstall時の値を維持する。別ユーザーがupdateしても実行ユーザーは変わらない。
+- envのSERVER・ROS_DOMAIN_IDと、スクリプト・サービスを反映しrouterを再起動する。
+- ROLEとRUN_USERはinstall時の値を維持する。別ユーザーがupdateしても実行ユーザーは変わらない。
 - router.json5と適用済みプロファイルは保持する。profiles/*.jsonの編集反映は別のmake apply-profileで行う。
 - ROS_DOMAIN_IDが変わると、保持しているプロファイルも新Domainのキーで実行時に再生成される。
 - ROSパッケージ更新は行わない。
@@ -132,12 +125,12 @@ ros2 daemon stop
 # ここでROSノードを再起動。systemd起動のROSノードも再起動する。
 ```
 
-古いバージョンから移行する場合は、まずconfig/deployment.envを作り、従来のROLE・SERVER・DOMAIN_IDの値を写す（DOMAIN_IDはROS_DOMAIN_IDへ名称変更）。その後make updateを実行する。
-ROLEをcentralへ変更すると適用済み機器プロファイルは保持するが無視する。vehicle/controlへ変更する場合は必要なプロファイルをmake apply-profileで適用する。
+古いバージョンから移行する場合は、config/deployment.envへ従来のSERVER・DOMAIN_IDの値を写す（DOMAIN_IDはROS_DOMAIN_IDへ名称変更）。以前ローカルenvにROLEを記載していた場合は削除する。make updateでは配置済みのROLEとRUN_USERを維持する。
+ROLEを変える場合は設定をバックアップし、make purge後に新しいROLEでinstallする。
 
 | 変更する内容 | 編集元 | 反映コマンド |
 |---|---|---|
-| ROLE・SERVER・ROS_DOMAIN_ID | config/deployment.env | make update |
+| SERVER・ROS_DOMAIN_ID | config/deployment.env | make update |
 | スクリプト・サービス | scripts/・systemd/ | make update |
 | allow・denyリスト | profiles/*.json | make apply-profile DEVICE="<対象機械>" |
 
@@ -152,7 +145,7 @@ make purge
 
 削除時は.bashrcのsource行も手動で削除する。ROSパッケージ、旧bridge、ほかの/etc/zenoh配下のファイルには触れない。
 ローカルリポジトリのconfig/deployment.envやprofilesは削除しない。
-uninstall後の再導入はmake updateで行える。ローカルenvを反映し、配置済みプロファイルとRUN_USERを保持する。
+uninstall後の再導入はmake updateで行える。ローカルenvを反映し、配置済みプロファイル・ROLE・RUN_USERを保持する。
 
 ## 機器別allow・denyリスト
 
@@ -351,8 +344,8 @@ RUN_USERはrouterを動かすLinuxユーザーを指定する。ROSの通信相�
 
 ```bash
 # bullでログインしている場合、次の2つは同じ
-make install DEVICE="<対象機械>"
-make install DEVICE="<対象機械>" RUN_USER=bull
+make install ROLE=vehicle DEVICE="<対象機械>"
+make install ROLE=vehicle DEVICE="<対象機械>" RUN_USER=bull
 ```
 
 インストールだけ管理者権限を使い、router自体は指定ユーザーで動作する。
@@ -360,7 +353,7 @@ systemdのUserは指定ユーザー、Groupはそのプライマリグループ�
 rootは指定不可。別ユーザーを指定する場合は、そのPC上に存在するユーザーを選ぶ。
 
 ```bash
-make install DEVICE="<対象機械>" RUN_USER=operator
+make install ROLE=vehicle DEVICE="<対象機械>" RUN_USER=operator
 ```
 
 RUN_USERはrouterサービス用。ROSノードを同じユーザーで動かす必要はないが、各ノードでRMW・Domain ID・接続設定をそろえる。
