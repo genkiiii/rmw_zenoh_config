@@ -134,6 +134,71 @@ ROLEを変える場合は設定をバックアップし、make purge後に新し
 | スクリプト・サービス | scripts/・systemd/ | make update |
 | allow・denyリスト | profiles/*.json | make apply-profile DEVICE="<対象機械>" |
 
+## routerサービスの操作
+
+インストール後はsystemdでrouterを管理する。手動で起動スクリプトを実行すると二重起動になるため、以下のコマンドを使う。
+
+### 状態確認
+
+```bash
+systemctl status rmw-zenoh-router.service
+```
+
+`Active: active (running)`なら稼働中。
+
+### 停止・起動
+
+```bash
+# 停止
+sudo systemctl stop rmw-zenoh-router.service
+
+# 起動
+sudo systemctl start rmw-zenoh-router.service
+```
+
+停止すると、このrouterを介したPC間通信も停止する。中央PCのrouterを停止した場合は、中央を経由する各PC間の通信が停止する。
+
+### 再起動
+
+```bash
+sudo systemctl restart rmw-zenoh-router.service
+```
+
+再起動すると、配置済みの設定を読み直す。通信制限を設定している場合は、中央への経路から対象NICも再判定する。
+
+ローカルリポジトリで編集した設定を反映する場合は、再起動だけではなく、次を使う。
+
+- `config/deployment.env`の変更：`make update`
+- `profiles/*.json`の変更：`make apply-profile DEVICE="<対象機械>"`
+
+どちらも設定反映後にrouterを再起動する。
+
+### ログ確認
+
+```bash
+# 今回のPC起動以降の直近50行
+journalctl -u rmw-zenoh-router.service -b -n 50 --no-pager
+
+# ログを継続表示（Ctrl+Cで表示終了）
+journalctl -u rmw-zenoh-router.service -f
+```
+
+権限不足で表示できない場合は先頭にsudoを付ける。ログ表示をCtrl+Cで終了しても、サービスは停止しない。
+
+### 自動起動の無効化・有効化
+
+stopだけでは自動起動設定は変わらず、次のPC起動時にはrouterも起動する。
+
+```bash
+# 今すぐ停止し、次回以降の自動起動も無効化
+sudo systemctl disable --now rmw-zenoh-router.service
+
+# 自動起動を有効化し、今すぐ起動
+sudo systemctl enable --now rmw-zenoh-router.service
+```
+
+`make install`・`make update`・`make apply-profile`を実行すると、自動起動も再び有効になる。
+
 ## 削除
 
 ```bash
