@@ -1,7 +1,7 @@
 # rmw_zenoh_config
 
 Ubuntu 22.04 / ROS 2 Humble向けのrmw_zenoh router導入・更新用リポジトリ。
-中央VMは192.168.1.70、各PCのROS_DOMAIN_IDは35。各PCにrouterを1つ置き、中央に明示接続する。
+中央PCと移動体用PCのROS_DOMAIN_IDは35。各PCにrouterを1つ置き、中央PCに明示接続する構成。
 
 ## 前提
 
@@ -19,14 +19,15 @@ sudo apt install make git python3 iproute2 ros-humble-rmw-zenoh-cpp ros-humble-d
 ## インストール
 
 リポジトリを取得したディレクトリで、実際の役割を1つ選んで実行する。
+sudoで実行しないこと。
 
 ```bash
 # 車載PC
-make install ROLE=vehicle RUN_USER=bull
-# 制御用PC（そのPCのユーザー名に変更）
-make install ROLE=control RUN_USER=bull
+make install ROLE=vehicle
+# 制御用PC
+make install ROLE=control
 # 中央VMのみ
-make install ROLE=central RUN_USER=bull
+make install ROLE=central
 ```
 
 必要なら `SERVER=192.168.1.70 DOMAIN_ID=35` を追加指定する。
