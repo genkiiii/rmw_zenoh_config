@@ -15,9 +15,9 @@ spec.loader.exec_module(acl)
 def merge_profiles(directory, device="", devices=""):
     if device and devices:
         raise ValueError("Specify DEVICE or DEVICES, not both")
-    names = devices.split() if devices else [device]
+    names = (device or devices).split()
     if not names or any(not re.fullmatch(r"[A-Za-z0-9_-]+", name) for name in names):
-        raise ValueError("DEVICE or DEVICES is required; use profile names without paths")
+        raise ValueError("DEVICE is required; specify one or more profile names separated by spaces")
     result = {mode: {kind: [] for kind in ("topics", "services", "actions")}
               for mode in ("deny", "allow")}
     for name in names:

@@ -20,6 +20,8 @@ class ProfileTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             merge.merge_profiles(root / 'profiles')
         with self.assertRaises(ValueError):
+            merge.merge_profiles(root / 'profiles', device='   ')
+        with self.assertRaises(ValueError):
             merge.merge_profiles(root / 'profiles', 'd37pxi', 'zx200')
         with self.assertRaises(OSError):
             merge.merge_profiles(root / 'profiles', 'does_not_exist')
@@ -32,7 +34,9 @@ class ProfileTests(unittest.TestCase):
                 Path(directory, name + '.json').write_text(json.dumps({
                     'allow': {}, 'deny': {'topics': ['/robot/state'],
                     'services': ['/robot/reset'], 'actions': ['/robot/nav']}}))
-            result = merge.merge_profiles(directory, devices='one two')
+            result = merge.merge_profiles(directory, device='one two')
+            self.assertEqual(result, merge.merge_profiles(directory, devices='one two'))
+            self.assertEqual(result, merge.merge_profiles(directory, device='  one   two one  '))
             self.assertEqual(result['deny']['actions'], ['/robot/nav'])
             policy = merge.acl.build_acl(result, '35', 'eth0')
             keys = policy['rules'][0]['key_exprs']
@@ -83,7 +87,7 @@ class MixedPolicyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             Path(directory, 'a.json').write_text(json.dumps({'allow': {'topics': ['/a/state']}}))
             Path(directory, 'b.json').write_text(json.dumps({'deny': {'services': ['/b/reset']}}))
-            profile = merge.merge_profiles(directory, devices='a b')
+            profile = merge.merge_profiles(directory, device='a b')
             policy = merge.acl.build_acl(profile, '35', 'eth0')
             self.assertEqual(policy['default_permission'], 'deny')
             self.assertTrue(any('35/b/reset/*/*' in r['key_exprs'] and r['permission'] == 'deny'

@@ -65,10 +65,11 @@ make install ROLE=vehicle DEVICE="<対象機械>"
 make install ROLE=control DEVICE="<対象機械>"
 
 # 複数の建機を扱う制御PC
-make install ROLE=control DEVICES="<対象機械1> <対象機械2>"
+make install ROLE=control DEVICE="<対象機械1> <対象機械2>"
 ```
 
-vehicle/controlはDEVICEまたはDEVICESが必須。両方の同時指定はエラー。
+vehicle/controlはDEVICEが必須。1機器でも複数機器でも同じ引数を使い、複数の場合はダブルクォート内にスペース区切りで記載する。
+旧引数DEVICESも互換性のため受け付けるが、DEVICEとの同時指定はエラー。
 centralではDEVICE/DEVICESを指定しない。
 RUN_USERは省略可能。省略時はコマンドを実行したユーザーでrouterを動かす。
 詳細は下部の補足を参照。
@@ -294,7 +295,7 @@ localhost内の通信は維持する。
 ```bash
 make apply-profile DEVICE="<対象機械>"
 # 複数機器
-make apply-profile DEVICES="<対象機械1> <対象機械2>"
+make apply-profile DEVICE="<対象機械1> <対象機械2>"
 ```
 
 指定した全プロファイルを合算し、適用中のプロファイル一式を置き換える。維持したい機器もすべて指定する。
