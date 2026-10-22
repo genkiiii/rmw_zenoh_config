@@ -418,6 +418,10 @@ ESTABはTCP接続の確認。さらに別PC間でtalker/listenerを実行する�
 
 時刻エラーが出たら `timedatectl status` を確認する。大きな時刻補正前は制御ノードを停止し、補正後にrouterとROSノードを再起動する。
 
+## 通信障害の調査用ログ
+
+[ログ取得スクリプトの使い方・保存内容・調査手順](docs/zenoh-capture.md)
+
 ## 参考
 
 - [rmw_zenoh Humble](https://github.com/ros2/rmw_zenoh/tree/humble)
